@@ -169,9 +169,11 @@ if st.button("Run Master Analysis"):
                 bullish_score = 0
                 bearish_score = 0
                 engine_used = "TextBlob (Basic)"
+                num_headlines = 0
                 
                 if news:
                     news_texts = [item.get('title', '') for item in news[:5] if 'title' in item] 
+                    num_headlines = len(news_texts)
                     if news_texts:
                         if hf_token:
                             api_result = query_finbert_api(news_texts, hf_token)
@@ -261,28 +263,31 @@ if st.button("Run Master Analysis"):
                 fig_daily.update_layout(xaxis_rangeslider_visible=False, height=350, margin=dict(l=10, r=10, t=10, b=10))
                 st.plotly_chart(fig_daily, use_container_width=True)
                 
-                # --- NEW: EXPLANATION SECTION ---
+                # --- NEW: SPECIFIC EXPLANATION SECTION ---
                 st.markdown("#### AI Diagnostics & Reasoning")
-                st.caption(f"Sentiment Analysis active via: **{engine_used}**")
                 
-                # Mathematical Model Explanation
+                # Mathematical Model Specifics
                 if forecast > current_price:
                     st.success("🤖 Mathematical Model: BULLISH")
-                    st.write(f"**Why?** The AI algorithm analyzed past price trends and volume, calculating that the price is likely to **rise by ${forecast_diff:.2f}** over your {horizon_choice} timeframe.")
+                    st.write(f"**Specifics:** A Random Forest algorithm analyzed 1 year of daily technical data (Open, High, Low, Close, and Volume). Based on current momentum patterns, it projects the current price of **${current_price:.2f}** will rise to **${forecast:.2f}**. This is a mathematically predicted gain of **${forecast_diff:.2f}** over the next {horizon_choice}.")
                 else:
                     st.error("🤖 Mathematical Model: BEARISH")
-                    st.write(f"**Why?** The AI algorithm analyzed past price trends and volume, calculating that the price is likely to **fall by ${abs(forecast_diff):.2f}** over your {horizon_choice} timeframe.")
+                    st.write(f"**Specifics:** A Random Forest algorithm analyzed 1 year of daily technical data (Open, High, Low, Close, and Volume). Based on current weakness patterns, it projects the current price of **${current_price:.2f}** will fall to **${forecast:.2f}**. This is a mathematically predicted drop of **${abs(forecast_diff):.2f}** over the next {horizon_choice}.")
                     
-                # Sentiment Model Explanation
-                if bullish_score > bearish_score:
-                    st.success("📰 Market Psychology: BULLISH")
-                    st.write("**Why?** Our language model scanned recent news headlines and detected strong optimism and positive momentum surrounding this company.")
-                elif bearish_score > bullish_score:
-                    st.error("📰 Market Psychology: BEARISH")
-                    st.write("**Why?** Our language model scanned recent news headlines and detected fear, uncertainty, or negative momentum surrounding this company.")
+                # Sentiment Model Specifics
+                if num_headlines > 0:
+                    if bullish_score > bearish_score:
+                        st.success("📰 Market Psychology: BULLISH")
+                        st.write(f"**Specifics:** The **{engine_used}** Natural Language Processing model scanned the **{num_headlines} most recent news headlines** for {ticker}. It calculated a positive sentiment score of **{bullish_score:.2f}** compared to a negative score of **{bearish_score:.2f}**, indicating strong media optimism.")
+                    elif bearish_score > bullish_score:
+                        st.error("📰 Market Psychology: BEARISH")
+                        st.write(f"**Specifics:** The **{engine_used}** Natural Language Processing model scanned the **{num_headlines} most recent news headlines** for {ticker}. It calculated a negative sentiment score of **{bearish_score:.2f}** compared to a positive score of **{bullish_score:.2f}**, indicating fear or media pessimism.")
+                    else:
+                        st.info("⚖️ Market Psychology: NEUTRAL")
+                        st.write(f"**Specifics:** The **{engine_used}** Natural Language Processing model scanned the **{num_headlines} most recent news headlines** for {ticker}. The positive score (**{bullish_score:.2f}**) and negative score (**{bearish_score:.2f}**) perfectly offset each other, or no strong sentiment keywords were detected.")
                 else:
-                    st.info("⚖️ Market Psychology: NEUTRAL")
-                    st.write("**Why?** Recent news is either very quiet, or the positive and negative headlines are perfectly balancing each other out.")
+                    st.info("⚖️ Market Psychology: UNKNOWN")
+                    st.write("**Specifics:** No recent news headlines were found for this ticker to analyze.")
 
             with tab2:
                 st.markdown(f"### ⚡ Intraday Momentum: {ticker}")
@@ -328,4 +333,4 @@ if st.button("Run Master Analysis"):
     except Exception as e:
         st.error("An error occurred during analysis.")
         st.error(f"System Log: {e}")
-                
+        
