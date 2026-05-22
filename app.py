@@ -4,6 +4,7 @@ import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
 from transformers import pipeline
 import warnings
+import plotly.graph_objects as go
 
 warnings.filterwarnings('ignore')
 
@@ -67,7 +68,23 @@ if st.button("Run Master Analysis"):
             col1.metric(label="Current Price", value=f"${current_price:.2f}")
             forecast_diff = forecast - current_price
             col2.metric(label="5-Day AI Target", value=f"${forecast:.2f}", delta=f"${forecast_diff:.2f}")
-            
+                    # --- CANDLESTICK CHART ---
+        st.markdown("#### Price History")
+        fig = go.Figure(data=[go.Candlestick(x=data.index,
+                        open=data['Open'],
+                        high=data['High'],
+                        low=data['Low'],
+                        close=data['Close'],
+                        name='Price')])
+        
+        fig.update_layout(
+            xaxis_rangeslider_visible=False,
+            margin=dict(l=10, r=10, t=10, b=10),
+            height=300
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        # -------------------------
+        
             st.markdown("#### Engine Diagnostics")
             if forecast > current_price:
                 st.success("🤖 Mathematical Model: BULLISH (Expecting Upward Trend)")
