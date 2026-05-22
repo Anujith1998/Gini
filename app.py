@@ -20,9 +20,7 @@ if not hf_token:
     hf_token = st.sidebar.text_input("Hugging Face Token (Optional)", type="password", 
                                      help="Set up HF_TOKEN in your App Secrets to hide this box.")
 
-# --- User Input ---
-ticker = st.text_input("Enter Ticker Symbol (e.g. AAPL, TSLA):", "AAPL").upper()
-
+# Helper function to talk to Hugging Face's serverless AI
 def query_finbert_api(text_list, token):
     api_url = "https://api-inference.huggingface.co/models/ProsusAI/finbert"
     headers = {"Authorization": f"Bearer {token}"}
@@ -31,6 +29,55 @@ def query_finbert_api(text_list, token):
         return response.json()
     except:
         return None
+
+# --- NEW: LIGHTWEIGHT UPFRONT MARKET SCANNER ---
+@st.cache_data(ttl=1800)  # Caches data for 30 minutes so it loads instantly for the user
+def scan_market_leaders():
+    # High-volume, high-volatility market movers across sectors
+    watchlist = ["AAPL", "NVDA", "TSLA", "AMD", "MSFT", "AMZN", "META", "GOOGL"]
+    scanned_data = []
+    
+    for t in watchlist:
+        try:
+            stock = yf.Ticker(t)
+            hist = stock.history(period="2d")
+            if len(hist) >= 2:
+                close_today = hist['Close'].iloc[-1]
+                close_prev = hist['Close'].iloc[-2]
+                pct_change = ((close_today - close_prev) / close_prev) * 100
+                scanned_data.append({"ticker": t, "price": close_today, "change": pct_change})
+        except:
+            continue
+    return pd.DataFrame(scanned_data)
+
+# Run the upfront scan
+st.markdown("### 🔥 Live Momentum Watchlist")
+st.caption("Real-time snapshot of major market movers before you run a deep dive:")
+
+with st.spinner("Scanning market leaders..."):
+    scanner_df = scan_market_leaders()
+
+if not scanner_df.empty:
+    # Sort by the biggest gainers first
+    scanner_df = scanner_df.sort_values(by="change", ascending=False)
+    
+    # Display top 4 stocks in responsive metric columns
+    cols = st.columns(4)
+    for i, row in enumerate(scanner_df.head(4).itertuples()):
+        with cols[i]:
+            st.metric(
+                label=row.ticker, 
+                value=f"${row.price:.2f}", 
+                delta=f"{row.change:+.2f}%"
+            )
+else:
+    st.info("Unable to populate quick watchlist. Proceed directly to search below.")
+
+st.markdown("---")
+
+# --- User Input Deep Dive ---
+st.markdown("### 🔍 Run Deep AI Analysis")
+ticker = st.text_input("Enter Ticker Symbol to analyze:", "AAPL").upper()
 
 if st.button("Run Master Analysis"):
     try:
@@ -116,11 +163,8 @@ if st.button("Run Master Analysis"):
                 col2.metric(label="5-Day AI Target", value=f"${forecast:.2f}", delta=delta_display)
                 
                 st.markdown("#### Price History & 5-Day Forecast Path")
-                
-                # Filter down to the last 45 days of history so the chart isn't too cramped to see the forecast
                 recent_data = data.iloc[-45:]
                 
-                # Build base candlestick chart
                 fig_daily = go.Figure(data=[go.Candlestick(
                     x=recent_data.index,
                     open=recent_data['Open'], high=recent_data['High'],
@@ -128,18 +172,14 @@ if st.button("Run Master Analysis"):
                     name='Historical Price'
                 )])
                 
-                # Generate future dates for the timeline (skipping weekends roughly)
                 last_date = recent_data.index[-1]
                 future_date = last_date + timedelta(days=5)
                 
-                # Create the prediction line data arrays
                 forecast_dates = [last_date, future_date]
                 forecast_prices = [current_price, forecast]
                 
-                # Choose line color based on direction
                 line_color = '#00E676' if forecast_diff >= 0 else '#FF1744'
                 
-                # Overlay the dotted forecast projection line
                 fig_daily.add_trace(go.Scatter(
                     x=forecast_dates, 
                     y=forecast_prices,
@@ -216,4 +256,4 @@ if st.button("Run Master Analysis"):
     except Exception as e:
         st.error("An error occurred during analysis.")
         st.error(f"System Log: {e}")
-        
+                
