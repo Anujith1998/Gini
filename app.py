@@ -15,10 +15,21 @@ st.write("Advanced Market Analysis & Day Trading Engine")
 # --- Automated Token Detection ---
 hf_token = st.secrets.get("HF_TOKEN", None)
 
+st.sidebar.header("⚙️ Dashboard Controls")
+
 if not hf_token:
-    st.sidebar.header("🔑 AI Engine Settings")
     hf_token = st.sidebar.text_input("Hugging Face Token (Optional)", type="password", 
                                      help="Set up HF_TOKEN in your App Secrets to hide this box.")
+
+# --- NEW: SIDEBAR PRICE FILTER SLIDER ---
+max_price_filter = st.sidebar.slider(
+    "Filter Watchlist by Max Price ($):", 
+    min_value=10, 
+    max_value=1000, 
+    value=500, 
+    step=10,
+    help="Slide left to only show cheaper stocks in your upfront watchlist."
+)
 
 # Helper function to talk to Hugging Face's serverless AI
 def query_finbert_api(text_list, token):
@@ -30,10 +41,9 @@ def query_finbert_api(text_list, token):
     except:
         return None
 
-# --- NEW: LIGHTWEIGHT UPFRONT MARKET SCANNER ---
-@st.cache_data(ttl=1800)  # Caches data for 30 minutes so it loads instantly for the user
+# Lightweight upfront market scanner
+@st.cache_data(ttl=1800)  # Caches data for 30 minutes
 def scan_market_leaders():
-    # High-volume, high-volatility market movers across sectors
     watchlist = ["AAPL", "NVDA", "TSLA", "AMD", "MSFT", "AMZN", "META", "GOOGL"]
     scanned_data = []
     
@@ -52,24 +62,30 @@ def scan_market_leaders():
 
 # Run the upfront scan
 st.markdown("### 🔥 Live Momentum Watchlist")
-st.caption("Real-time snapshot of major market movers before you run a deep dive:")
+st.caption(f"Showing market leaders priced under **${max_price_filter}**:")
 
 with st.spinner("Scanning market leaders..."):
     scanner_df = scan_market_leaders()
 
 if not scanner_df.empty:
-    # Sort by the biggest gainers first
-    scanner_df = scanner_df.sort_values(by="change", ascending=False)
+    # APPLY SIDEBAR PRICE FILTER DYNAMICALLY
+    filtered_df = scanner_df[scanner_df['price'] <= max_price_filter]
     
-    # Display top 4 stocks in responsive metric columns
-    cols = st.columns(4)
-    for i, row in enumerate(scanner_df.head(4).itertuples()):
-        with cols[i]:
-            st.metric(
-                label=row.ticker, 
-                value=f"${row.price:.2f}", 
-                delta=f"{row.change:+.2f}%"
-            )
+    # Sort by the biggest gainers first
+    filtered_df = filtered_df.sort_values(by="change", ascending=False)
+    
+    if not filtered_df.empty:
+        # Display top 4 filtered stocks in responsive metric columns
+        cols = st.columns(min(4, len(filtered_df)))
+        for i, row in enumerate(filtered_df.head(4).itertuples()):
+            with cols[i]:
+                st.metric(
+                    label=row.ticker, 
+                    value=f"${row.price:.2f}", 
+                    delta=f"{row.change:+.2f}%"
+                )
+    else:
+        st.warning(f"No stocks in the watchlist are currently priced below ${max_price_filter}. Try increasing the slider.")
 else:
     st.info("Unable to populate quick watchlist. Proceed directly to search below.")
 
@@ -256,4 +272,4 @@ if st.button("Run Master Analysis"):
     except Exception as e:
         st.error("An error occurred during analysis.")
         st.error(f"System Log: {e}")
-                
+        
