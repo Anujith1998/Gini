@@ -61,43 +61,43 @@ if st.button("Run Master Analysis"):
                         elif result['label'] == 'negative':
                             bearish_score += 1
                             
-            st.markdown("---")
-            st.markdown(f"### 📊 Final Outlook: {ticker}")
-            
-        col1, col2 = st.columns(2)
-        col1.metric(label="Current Price", value=f"${current_price:.2f}")
-        forecast_diff = forecast - current_price
-        col2.metric(label="5-Day AI Target", value=f"${forecast:.2f}", delta=f"${forecast_diff:.2f}")
-        
-        # --- CANDLESTICK CHART ---
-        st.markdown("#### Price History")
-        fig = go.Figure(data=[go.Candlestick(x=data.index,
-                        open=data['Open'],
-                        high=data['High'],
-                        low=data['Low'],
-                        close=data['Close'],
-                        name='Price')])
-        
-        fig.update_layout(
-            xaxis_rangeslider_visible=False,
-            margin=dict(l=10, r=10, t=10, b=10),
-            height=300
-        )
-        st.plotly_chart(fig, use_container_width=True)
-        # -------------------------
+                st.markdown("---")
+    st.markdown(f"### 📊 Final Outlook: {ticker}")
 
-        st.markdown("#### Engine Diagnostics")
-        if forecast > current_price:
-            st.success("🤖 Mathematical Model: BULLISH (Expecting Upward Trend)")
-        else:
-            st.error("🤖 Mathematical Model: BEARISH (Expecting Downward Trend)")
-            
-        if bullish_score > bearish_score:
-            st.success("📰 Market Psychology: BULLISH (Positive News Cycle)")
-        elif bearish_score > bullish_score:
-            st.error("📰 Market Psychology: BEARISH (Negative News Cycle)")
-        else:
-            st.info("⚖️ Market Psychology: NEUTRAL (No Extreme Sentiment)")
-            
-    except Exception as e:
-        st.error("An error occurred. Check the ticker symbol and try again.")
+    col1, col2 = st.columns(2)
+    col1.metric(label="Current Price", value=f"${current_price:.2f}")
+    forecast_diff = forecast - current_price
+    col2.metric(label="5-Day AI Target", value=f"${forecast:.2f}", delta=f"${forecast_diff:.2f}")
+    
+    # --- CANDLESTICK CHART ---
+    st.markdown("#### Price History")
+    fig = go.Figure(data=[go.Candlestick(x=data.index,
+                    open=data['Open'],
+                    high=data['High'],
+                    low=data['Low'],
+                    close=data['Close'],
+                    name='Price')])
+    
+    fig.update_layout(
+        xaxis_rangeslider_visible=False,
+        margin=dict(l=10, r=10, t=10, b=10),
+        height=300
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    # -------------------------
+
+    st.markdown("#### Engine Diagnostics")
+    if forecast > current_price:
+        st.success("🤖 Mathematical Model: BULLISH (Expecting Upward Trend)")
+    else:
+        st.error("🤖 Mathematical Model: BEARISH (Expecting Downward Trend)")
+        
+    if bullish_score > bearish_score:
+        st.success("📰 Market Psychology: BULLISH (Positive News Cycle)")
+    elif bearish_score > bullish_score:
+        st.error("📰 Market Psychology: BEARISH (Negative News Cycle)")
+    else:
+        st.info("⚖️ Market Psychology: NEUTRAL (No Extreme Sentiment)")
+        
+except Exception as e:
+    st.error("An error occurred. Check the ticker symbol and try again.")
