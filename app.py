@@ -2,8 +2,8 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
-from transformers import pipeline
-import torch
+from textblob import TextBlob
+import requests
 import plotly.graph_objects as go
 
 # --- App Configuration ---
@@ -11,12 +11,32 @@ st.set_page_config(page_title="ProQuant AI", layout="centered", page_icon="📈"
 st.title("ProQuant AI 📈")
 st.write("Advanced Market Analysis & Day Trading Engine")
 
+# --- Automated Token Detection ---
+# This pulls the key from your secure dashboard settings automatically
+hf_token = st.secrets.get("HF_TOKEN", None)
+
+# If you haven't set up the secret yet, it adds a fallback sidebar input box
+if not hf_token:
+    st.sidebar.header("🔑 AI Engine Settings")
+    hf_token = st.sidebar.text_input("Hugging Face Token (Optional)", type="password", 
+                                     help="Set up HF_TOKEN in your App Secrets to hide this box.")
+
 # --- User Input ---
 ticker = st.text_input("Enter Ticker Symbol (e.g. AAPL, TSLA):", "AAPL").upper()
 
+# Helper function to talk to Hugging Face's serverless AI
+def query_finbert_api(text_list, token):
+    api_url = "https://api-inference.huggingface.co/models/ProsusAI/finbert"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        response = requests.post(api_url, headers=headers, json={"inputs": text_list}, timeout=10)
+        return response.json()
+    except:
+        return None
+
 if st.button("Run Master Analysis"):
     try:
-        # --- THE ANIMATED BOOT-UP SEQUENCE ---
+        # --- THE ANIMATION TERMINAL ---
         with st.status("Initializing ProQuant AI Engine...", expanded=True) as status:
             
             st.write("📡 Fetching multi-timeframe market data...")
@@ -43,22 +63,44 @@ if st.button("Run Master Analysis"):
                 forecast = model.predict(latest_data)[0]
                 current_price = data['Close'].iloc[-1]
                 
+                # --- MARKET PSYCHOLOGY ANALYSIS ---
                 st.write("📰 Scanning live market sentiment & news...")
                 news = stock.news
                 bullish_score = 0
                 bearish_score = 0
+                engine_used = "TextBlob (Basic)"
+                
                 if news:
-                    sentiment_pipeline = pipeline("sentiment-analysis", model="ProsusAI/finbert")
                     news_texts = [item.get('title', '') for item in news[:5] if 'title' in item] 
                     if news_texts:
-                        results = sentiment_pipeline(news_texts)
-                        for res in results:
-                            if res['label'] == 'positive':
-                                bullish_score += res['score']
-                            elif res['label'] == 'negative':
-                                bearish_score += res['score']
+                        if hf_token:
+                            api_result = query_finbert_api(news_texts, hf_token)
+                            
+                            if api_result and isinstance(api_result, list) and "error" not in api_result:
+                                engine_used = "FinBERT Cloud AI (Elite)"
+                                for res_list in api_result:
+                                    if isinstance(res_list, list):
+                                        for item in res_list:
+                                            if item.get('label') == 'positive':
+                                                bullish_score += item.get('score', 0)
+                                            elif item.get('label') == 'negative':
+                                                bearish_score += item.get('score', 0)
+                            else:
+                                engine_used = "TextBlob (API Fallback)"
+                                for text in news_texts:
+                                    analysis = TextBlob(text)
+                                    if analysis.sentiment.polarity > 0.1:
+                                        bullish_score += analysis.sentiment.polarity
+                                    elif analysis.sentiment.polarity < -0.1:
+                                        bearish_score += abs(analysis.sentiment.polarity)
+                        else:
+                            for text in news_texts:
+                                analysis = TextBlob(text)
+                                if analysis.sentiment.polarity > 0.1:
+                                    bullish_score += analysis.sentiment.polarity
+                                elif analysis.sentiment.polarity < -0.1:
+                                    bearish_score += abs(analysis.sentiment.polarity)
                 
-                # Close the loading animation cleanly
                 status.update(label="Analysis Complete!", state="complete", expanded=False)
 
         # ----------------------------------------------------
@@ -75,9 +117,10 @@ if st.button("Run Master Analysis"):
                 
                 forecast_diff = forecast - current_price
                 if forecast_diff >= 0:
-                    delta_display = f"${forecast_diff:.2f}"
+                    delta_display = f"+${forecast_diff:.2f}"
                 else:
                     delta_display = f"-${abs(forecast_diff):.2f}"
+                    
                 col2.metric(label="5-Day AI Target", value=f"${forecast:.2f}", delta=delta_display)
                 
                 st.markdown("#### Price History (1 Year)")
@@ -88,6 +131,8 @@ if st.button("Run Master Analysis"):
                 st.plotly_chart(fig_daily, use_container_width=True)
                 
                 st.markdown("#### AI Diagnostics")
+                st.caption(f"Sentiment Analysis active via: **{engine_used}**")
+                
                 if forecast > current_price:
                     st.success("🤖 Mathematical Model: BULLISH")
                 else:
@@ -105,7 +150,7 @@ if st.button("Run Master Analysis"):
                 st.markdown(f"### ⚡ Intraday Momentum: {ticker}")
                 
                 if intraday.empty:
-                    st.warning("Intraday data unavailable. (Note: Live 5m data is restricted outside market hours or requires a premium data feed for some tickers).")
+                    st.warning("Intraday data unavailable. (Note: Live 5m data is restricted outside market hours / recent trading sessions).")
                 else:
                     intra_current = intraday['Close'].iloc[-1]
                     intra_high = intraday['High'].iloc[-len(intraday.loc[intraday.index.date == intraday.index.date[-1]]):].max()
