@@ -261,20 +261,28 @@ if st.button("Run Master Analysis"):
                 fig_daily.update_layout(xaxis_rangeslider_visible=False, height=350, margin=dict(l=10, r=10, t=10, b=10))
                 st.plotly_chart(fig_daily, use_container_width=True)
                 
-                st.markdown("#### AI Diagnostics")
+                # --- NEW: EXPLANATION SECTION ---
+                st.markdown("#### AI Diagnostics & Reasoning")
                 st.caption(f"Sentiment Analysis active via: **{engine_used}**")
                 
+                # Mathematical Model Explanation
                 if forecast > current_price:
                     st.success("🤖 Mathematical Model: BULLISH")
+                    st.write(f"**Why?** The AI algorithm analyzed past price trends and volume, calculating that the price is likely to **rise by ${forecast_diff:.2f}** over your {horizon_choice} timeframe.")
                 else:
                     st.error("🤖 Mathematical Model: BEARISH")
+                    st.write(f"**Why?** The AI algorithm analyzed past price trends and volume, calculating that the price is likely to **fall by ${abs(forecast_diff):.2f}** over your {horizon_choice} timeframe.")
                     
+                # Sentiment Model Explanation
                 if bullish_score > bearish_score:
                     st.success("📰 Market Psychology: BULLISH")
+                    st.write("**Why?** Our language model scanned recent news headlines and detected strong optimism and positive momentum surrounding this company.")
                 elif bearish_score > bullish_score:
                     st.error("📰 Market Psychology: BEARISH")
+                    st.write("**Why?** Our language model scanned recent news headlines and detected fear, uncertainty, or negative momentum surrounding this company.")
                 else:
                     st.info("⚖️ Market Psychology: NEUTRAL")
+                    st.write("**Why?** Recent news is either very quiet, or the positive and negative headlines are perfectly balancing each other out.")
 
             with tab2:
                 st.markdown(f"### ⚡ Intraday Momentum: {ticker}")
@@ -317,8 +325,7 @@ if st.button("Run Master Analysis"):
                     else:
                         st.info(f"⚖️ NORMAL VOLUME: {intra_volume:,} shares.")
 
-    # THIS IS THE CRITICAL LINE THAT WAS LIKELY MISSED IN THE COPY/PASTE
     except Exception as e:
         st.error("An error occurred during analysis.")
         st.error(f"System Log: {e}")
-        
+                
