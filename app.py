@@ -64,7 +64,7 @@ if st.button("Run Master Analysis"):
             st.markdown("---")
             st.markdown(f"### 📊 Final Outlook: {ticker}")
             
-                    col1, col2 = st.columns(2)
+                            col1, col2 = st.columns(2)
         col1.metric(label="Current Price", value=f"${current_price:.2f}")
         forecast_diff = forecast - current_price
         col2.metric(label="5-Day AI Target", value=f"${forecast:.2f}", delta=f"${forecast_diff:.2f}")
@@ -101,4 +101,3 @@ if st.button("Run Master Analysis"):
             
     except Exception as e:
         st.error("An error occurred. Check the ticker symbol and try again.")
-    
