@@ -21,7 +21,7 @@ if not hf_token:
     hf_token = st.sidebar.text_input("Hugging Face Token (Optional)", type="password", 
                                      help="Set up HF_TOKEN in your App Secrets to hide this box.")
 
-# --- NEW: SIDEBAR PRICE FILTER SLIDER ---
+# --- SIDEBAR PRICE FILTER SLIDER ---
 max_price_filter = st.sidebar.slider(
     "Filter Watchlist by Max Price ($):", 
     min_value=10, 
@@ -41,43 +41,46 @@ def query_finbert_api(text_list, token):
     except:
         return None
 
-# Lightweight upfront market scanner
-@st.cache_data(ttl=1800)  # Caches data for 30 minutes
-def scan_market_leaders():
+# --- UPGRADED BULLETPROOF BATCH SCANNER ---
+def scan_market_leaders_fast():
     watchlist = ["AAPL", "NVDA", "TSLA", "AMD", "MSFT", "AMZN", "META", "GOOGL"]
     scanned_data = []
-    
-    for t in watchlist:
-        try:
-            stock = yf.Ticker(t)
-            hist = stock.history(period="2d")
-            if len(hist) >= 2:
-                close_today = hist['Close'].iloc[-1]
-                close_prev = hist['Close'].iloc[-2]
-                pct_change = ((close_today - close_prev) / close_prev) * 100
-                scanned_data.append({"ticker": t, "price": close_today, "change": pct_change})
-        except:
-            continue
+    try:
+        # Pull everything at once in a single lightweight web request
+        df = yf.download(watchlist, period="2d", progress=False)
+        
+        if not df.empty and 'Close' in df.columns.levels[0]:
+            close_prices = df['Close']
+            for t in watchlist:
+                if t in close_prices.columns:
+                    price_series = close_prices[t].dropna()
+                    if len(price_series) >= 2:
+                        close_today = price_series.iloc[-1]
+                        close_prev = price_series.iloc[-2]
+                        pct_change = ((close_today - close_prev) / close_prev) * 100
+                        scanned_data.append({"ticker": t, "price": close_today, "change": pct_change})
+    except Exception as e:
+        pass # Fallback gracefully if Yahoo Finance experiences a hiccup
+        
     return pd.DataFrame(scanned_data)
 
-# Run the upfront scan
+# Run the upfront fast scan
 st.markdown("### 🔥 Live Momentum Watchlist")
 st.caption(f"Showing market leaders priced under **${max_price_filter}**:")
 
 with st.spinner("Scanning market leaders..."):
-    scanner_df = scan_market_leaders()
+    scanner_df = scan_market_leaders_fast()
 
 if not scanner_df.empty:
-    # APPLY SIDEBAR PRICE FILTER DYNAMICALLY
+    # Filter the results in real-time based on your slider position
     filtered_df = scanner_df[scanner_df['price'] <= max_price_filter]
-    
-    # Sort by the biggest gainers first
     filtered_df = filtered_df.sort_values(by="change", ascending=False)
     
     if not filtered_df.empty:
-        # Display top 4 filtered stocks in responsive metric columns
-        cols = st.columns(min(4, len(filtered_df)))
-        for i, row in enumerate(filtered_df.head(4).itertuples()):
+        # Dynamically create columns based on how many stocks match your filter
+        display_count = min(4, len(filtered_df))
+        cols = st.columns(display_count)
+        for i, row in enumerate(filtered_df.head(display_count).itertuples()):
             with cols[i]:
                 st.metric(
                     label=row.ticker, 
@@ -85,9 +88,9 @@ if not scanner_df.empty:
                     delta=f"{row.change:+.2f}%"
                 )
     else:
-        st.warning(f"No stocks in the watchlist are currently priced below ${max_price_filter}. Try increasing the slider.")
+        st.warning(f"⚠️ No watchlist stocks found under ${max_price_filter}. Adjust the sidebar slider to a higher value.")
 else:
-    st.info("Unable to populate quick watchlist. Proceed directly to search below.")
+    st.info("💡 Live feed temporarily unavailable. Enter a ticker directly below to begin.")
 
 st.markdown("---")
 
