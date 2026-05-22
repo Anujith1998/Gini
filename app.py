@@ -46,7 +46,6 @@ if st.button("Run Master Analysis"):
                 
                 if news:
                     sentiment_pipeline = pipeline("sentiment-analysis", model="ProsusAI/finbert")
-                    # Grab titles of the top 5 recent news articles
                     news_texts = [item.get('title', '') for item in news[:5] if 'title' in item] 
                     
                     if news_texts:
@@ -63,8 +62,15 @@ if st.button("Run Master Analysis"):
 
                 col1, col2 = st.columns(2)
                 col1.metric(label="Current Price", value=f"${current_price:.2f}")
+                
+                # Smart formatting to ensure Streamlit handles arrows perfectly
                 forecast_diff = forecast - current_price
-                col2.metric(label="5-Day AI Target", value=f"${forecast:.2f}", delta=f"${forecast_diff:.2f}")
+                if forecast_diff >= 0:
+                    delta_display = f"${forecast_diff:.2f}"
+                else:
+                    delta_display = f"-${abs(forecast_diff):.2f}"
+                
+                col2.metric(label="5-Day AI Target", value=f"${forecast:.2f}", delta=delta_display)
                 
                 # 5. Interactive Candlestick Chart
                 st.markdown("#### Price History")
