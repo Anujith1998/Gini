@@ -2,6 +2,5 @@ streamlit
 yfinance
 pandas
 scikit-learn
-transformers
-torch
+textblob
 plotly
