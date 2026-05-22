@@ -14,18 +14,45 @@ st.write("Advanced Market Analysis & Day Trading Engine")
 
 # --- Automated Token Detection ---
 hf_token = st.secrets.get("HF_TOKEN", None)
+
+# --- SIDEBAR CONTROLS ---
 st.sidebar.header("⚙️ Dashboard Controls")
 
 if not hf_token:
     hf_token = st.sidebar.text_input("Hugging Face Token (Optional)", type="password", 
                                      help="Set up HF_TOKEN in your App Secrets to hide this box.")
 
-# --- SIDEBAR PRICE FILTER SLIDER ---
+st.sidebar.markdown("---")
+st.sidebar.header("📝 Personal Watchlist")
+# Let the user type their own tickers
+user_watchlist_input = st.sidebar.text_input(
+    "Enter tickers (comma-separated):", 
+    value="AAPL, NVDA, TSLA, AMD, MSFT, AMZN, META, GOOGL"
+)
+
+# Parse the user input into a clean list of uppercase tickers
+parsed_watchlist = [ticker.strip().upper() for ticker in user_watchlist_input.split(",") if ticker.strip()]
+# We use a tuple for caching because Streamlit caches require immutable (unchangeable) variables
+watchlist_tuple = tuple(parsed_watchlist)
+
+st.sidebar.markdown("---")
+st.sidebar.header("🚨 Alert Settings")
+# Let the user define what a "Big Movement" is
+alert_threshold = st.sidebar.number_input(
+    "Alert me if a stock moves more than (%):", 
+    min_value=1.0, 
+    max_value=50.0, 
+    value=4.0, 
+    step=0.5,
+    help="Triggers an on-screen popup notification if a stock exceeds this daily change."
+)
+
+st.sidebar.markdown("---")
 max_price_filter = st.sidebar.slider(
     "Filter Watchlist by Max Price ($):", 
     min_value=10, 
     max_value=1000, 
-    value=500, 
+    value=1000, 
     step=10,
     help="Slide left to only show cheaper stocks in your upfront watchlist."
 )
@@ -40,14 +67,19 @@ def query_finbert_api(text_list, token):
     except:
         return None
 
-# --- UPGRADED BULLETPROOF BATCH SCANNER (MULTI-INDEX AWARE) ---
+# --- UPGRADED BULLETPROOF BATCH SCANNER ---
 @st.cache_data(ttl=900, show_spinner=False)  # Caches for 15 mins, ignores slider movements
-def scan_market_leaders_fast():
-    watchlist = ["AAPL", "NVDA", "TSLA", "AMD", "MSFT", "AMZN", "META", "GOOGL"]
+def scan_market_leaders_fast(watchlist):
     scanned_data = []
+    # Convert tuple back to list for yfinance
+    query_list = list(watchlist)
+    
+    if not query_list:
+        return pd.DataFrame()
+        
     try:
         # Pull everything at once in a single lightweight web request
-        df = yf.download(watchlist, period="5d", progress=False) 
+        df = yf.download(query_list, period="5d", progress=False) 
         
         if df.empty:
             return pd.DataFrame()
@@ -58,51 +90,63 @@ def scan_market_leaders_fast():
         else:
             close_df = df
             
-        for t in watchlist:
-            if t in close_df.columns:
-                price_series = close_df[t].dropna()
+        for t in query_list:
+            if t in close_df.columns or (len(query_list) == 1):
+                # Handle single stock vs multi stock series differences safely
+                price_series = close_df[t].dropna() if len(query_list) > 1 else close_df.dropna()
+                
                 if len(price_series) >= 2:
                     close_today = price_series.iloc[-1]
                     close_prev = price_series.iloc[-2]
                     pct_change = ((close_today - close_prev) / close_prev) * 100
                     scanned_data.append({"ticker": t, "price": float(close_today), "change": float(pct_change)})
     except Exception as e:
-        pass # Fallback gracefully if Yahoo Finance experiences a hiccup
+        pass # Fallback gracefully
         
     return pd.DataFrame(scanned_data)
 
-# --- UI Render: Upfront Scanner ---
+# --- UI Render: Upfront Scanner & Alerts ---
 st.markdown("### 🔥 Live Momentum Watchlist")
-st.caption(f"Showing market leaders priced under **${max_price_filter}**:")
 
-with st.spinner("Scanning market leaders..."):
-    scanner_df = scan_market_leaders_fast()
-
-if not scanner_df.empty:
-    # Filter the results in real-time based on your slider position
-    filtered_df = scanner_df[scanner_df['price'] <= max_price_filter].sort_values(by="change", ascending=False)
-    
-    if not filtered_df.empty:
-        # Dynamically create columns based on how many stocks match your filter
-        display_count = min(4, len(filtered_df))
-        cols = st.columns(display_count)
-        for i, row in enumerate(filtered_df.head(display_count).itertuples()):
-            cols[i].metric(
-                label=row.ticker, 
-                value=f"${row.price:.2f}", 
-                delta=f"{row.change:+.2f}%"
-            )
-    else:
-        st.warning(f"⚠️ No watchlist stocks found under ${max_price_filter}. Adjust the sidebar slider to a higher value.")
+if not parsed_watchlist:
+    st.warning("Please enter at least one ticker in the sidebar.")
 else:
-    st.info("💡 Live feed temporarily unavailable. Enter a ticker directly below to begin.")
+    with st.spinner("Scanning your custom watchlist..."):
+        scanner_df = scan_market_leaders_fast(watchlist_tuple)
+
+    if not scanner_df.empty:
+        # Filter the results in real-time based on your slider position
+        filtered_df = scanner_df[scanner_df['price'] <= max_price_filter].sort_values(by="change", ascending=False)
+        
+        # --- TRIGGER POPUP ALERTS ---
+        for _, row in filtered_df.iterrows():
+            if abs(row['change']) >= alert_threshold:
+                if row['change'] > 0:
+                    st.toast(f"🚀 SURGE ALERT: {row['ticker']} is UP {row['change']:+.2f}% today!", icon="🚀")
+                else:
+                    st.toast(f"🩸 DUMP ALERT: {row['ticker']} is DOWN {row['change']:+.2f}% today!", icon="🚨")
+        
+        if not filtered_df.empty:
+            # Dynamically create columns based on how many stocks match your filter
+            display_count = min(4, len(filtered_df))
+            cols = st.columns(display_count)
+            for i, row in enumerate(filtered_df.head(display_count).itertuples()):
+                cols[i].metric(
+                    label=row.ticker, 
+                    value=f"${row.price:.2f}", 
+                    delta=f"{row.change:+.2f}%"
+                )
+        else:
+            st.warning(f"⚠️ No watchlist stocks found under ${max_price_filter}. Adjust the sidebar slider to a higher value.")
+    else:
+        st.info("💡 Live feed temporarily unavailable or invalid tickers. Enter a ticker directly below to begin.")
 
 st.markdown("---")
 
 # --- User Input Deep Dive ---
 st.markdown("### 🔍 Run Deep AI Analysis")
 
-# --- NEW: TIMEFRAME SELECTOR ---
+# --- TIMEFRAME SELECTOR ---
 input_col1, input_col2 = st.columns([2, 1])
 with input_col1:
     ticker = st.text_input("Enter Ticker Symbol to analyze:", "AAPL").upper()
@@ -200,7 +244,6 @@ if st.button("Run Master Analysis"):
                 else:
                     delta_display = f"-${abs(forecast_diff):.2f}"
                     
-                # Dynamically update the metric label
                 col2.metric(label=f"AI Target ({horizon_choice})", value=f"${forecast:.2f}", delta=delta_display)
 
                 # --- RISK MANAGEMENT CALCULATOR ---
@@ -213,116 +256,5 @@ if st.button("Run Master Analysis"):
                 tp_input = r3.number_input("Target Price ($)", value=float(forecast))
 
                 risk = entry_input - sl_input
-                reward = tp_input - entry_input
+                reward = tp_input - entry
                 
-                if risk > 0:
-                    ratio = reward / risk
-                    st.metric("Risk/Reward Ratio", f"{ratio:.2f} : 1")
-                    if ratio >= 2.0:
-                        st.success(f"✅ **GOOD TRADE:** Potential reward is {ratio:.1f}x your risk.")
-                    elif ratio > 1.0:
-                        st.warning(f"⚠️ **CAUTION:** Reward is less than 2x your risk ({ratio:.1f}x).")
-                    else:
-                        st.error("❌ **AVOID:** You are risking more than you stand to gain.")
-                elif risk == 0:
-                    st.error("Stop Loss cannot equal your Entry Price.")
-                else:
-                    st.error("Check your numbers: Stop Loss must be lower than Entry for a standard Long trade.")
-                
-                # Charting
-                st.markdown(f"#### Price History & {horizon_choice} Forecast Path")
-                recent_data = data.iloc[-45:]
-                
-                fig_daily = go.Figure(data=[go.Candlestick(
-                    x=recent_data.index,
-                    open=recent_data['Open'], high=recent_data['High'],
-                    low=recent_data['Low'], close=recent_data['Close'], 
-                    name='Historical Price'
-                )])
-                
-                last_date = recent_data.index[-1]
-                # Extend the line out dynamically based on calendar days
-                future_date = last_date + timedelta(days=calendar_days)
-                
-                forecast_dates = [last_date, future_date]
-                forecast_prices = [current_price, forecast]
-                
-                line_color = '#00E676' if forecast_diff >= 0 else '#FF1744'
-                
-                fig_daily.add_trace(go.Scatter(
-                    x=forecast_dates, 
-                    y=forecast_prices,
-                    mode='lines+markers',
-                    name='AI Forecast Path',
-                    line=dict(color=line_color, width=3, dash='dash'),
-                    marker=dict(size=8, symbol='circle')
-                ))
-                
-                fig_daily.update_layout(
-                    xaxis_rangeslider_visible=False, 
-                    height=350, 
-                    margin=dict(l=10, r=10, t=10, b=10),
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-                )
-                st.plotly_chart(fig_daily, use_container_width=True)
-                
-                st.markdown("#### AI Diagnostics")
-                st.caption(f"Sentiment Analysis active via: **{engine_used}**")
-                
-                if forecast > current_price:
-                    st.success("🤖 Mathematical Model: BULLISH")
-                else:
-                    st.error("🤖 Mathematical Model: BEARISH")
-                    
-                if bullish_score > bearish_score:
-                    st.success("📰 Market Psychology: BULLISH")
-                elif bearish_score > bullish_score:
-                    st.error("📰 Market Psychology: BEARISH")
-                else:
-                    st.info("⚖️ Market Psychology: NEUTRAL")
-
-            # --- TAB 2: DAY TRADING ENGINE ---
-            with tab2:
-                st.markdown(f"### ⚡ Intraday Momentum: {ticker}")
-                
-                if intraday.empty:
-                    st.warning("Intraday data unavailable right now.")
-                else:
-                    intra_current = intraday['Close'].iloc[-1]
-                    intra_high = intraday['High'].iloc[-len(intraday.loc[intraday.index.date == intraday.index.date[-1]]):].max()
-                    intra_low = intraday['Low'].iloc[-len(intraday.loc[intraday.index.date == intraday.index.date[-1]]):].min()
-                    intra_volume = intraday['Volume'].iloc[-1]
-                    avg_volume = intraday['Volume'].mean()
-                    
-                    c1, c2, c3 = st.columns(3)
-                    c1.metric(label="Live Price", value=f"${intra_current:.2f}")
-                    c2.metric(label="Today's High", value=f"${intra_high:.2f}")
-                    c3.metric(label="Today's Low", value=f"${intra_low:.2f}")
-                    
-                    st.markdown("#### Today's Session Position")
-                    total_range = (intra_high - intra_low) if (intra_high - intra_low) != 0 else 1
-                    position_pct = int(((intra_current - intra_low) / total_range) * 100)
-                    position_pct = max(0, min(100, position_pct)) 
-                    
-                    st.progress(position_pct / 100)
-                    st.caption(f"Price is sitting at {position_pct}% of today's total high-low bracket.")
-                    
-                    st.markdown("#### 5-Minute Live Momentum Chart")
-                    fig_intra = go.Figure(data=[go.Candlestick(x=intraday.index,
-                                    open=intraday['Open'], high=intraday['High'],
-                                    low=intraday['Low'], close=intraday['Close'], name='5m Bars')])
-                    fig_intra.update_layout(xaxis_rangeslider_visible=False, height=300, margin=dict(l=10,r=10,t=10,b=10))
-                    st.plotly_chart(fig_intra, use_container_width=True)
-                    
-                    st.markdown("#### Trading Activity Alert")
-                    if intra_volume > (avg_volume * 1.5):
-                        st.success(f"🔥 VOLUME SURGE: {intra_volume:,} shares traded.")
-                    elif intra_volume < (avg_volume * 0.5):
-                        st.error(f"💤 SLEEPY VOLUME: {intra_volume:,} shares.")
-                    else:
-                        st.info(f"⚖️ NORMAL VOLUME: {intra_volume:,} shares.")
-
-    except Exception as e:
-        st.error("An error occurred during analysis.")
-        st.error(f"System Log: {e}")
-        
