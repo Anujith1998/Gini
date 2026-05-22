@@ -5,6 +5,7 @@ from sklearn.ensemble import RandomForestRegressor
 from textblob import TextBlob
 import requests
 import plotly.graph_objects as go
+from datetime import timedelta
 
 # --- App Configuration ---
 st.set_page_config(page_title="ProQuant AI", layout="centered", page_icon="📈")
@@ -12,10 +13,8 @@ st.title("ProQuant AI 📈")
 st.write("Advanced Market Analysis & Day Trading Engine")
 
 # --- Automated Token Detection ---
-# This pulls the key from your secure dashboard settings automatically
 hf_token = st.secrets.get("HF_TOKEN", None)
 
-# If you haven't set up the secret yet, it adds a fallback sidebar input box
 if not hf_token:
     st.sidebar.header("🔑 AI Engine Settings")
     hf_token = st.sidebar.text_input("Hugging Face Token (Optional)", type="password", 
@@ -24,7 +23,6 @@ if not hf_token:
 # --- User Input ---
 ticker = st.text_input("Enter Ticker Symbol (e.g. AAPL, TSLA):", "AAPL").upper()
 
-# Helper function to talk to Hugging Face's serverless AI
 def query_finbert_api(text_list, token):
     api_url = "https://api-inference.huggingface.co/models/ProsusAI/finbert"
     headers = {"Authorization": f"Bearer {token}"}
@@ -36,7 +34,6 @@ def query_finbert_api(text_list, token):
 
 if st.button("Run Master Analysis"):
     try:
-        # --- THE ANIMATION TERMINAL ---
         with st.status("Initializing ProQuant AI Engine...", expanded=True) as status:
             
             st.write("📡 Fetching multi-timeframe market data...")
@@ -63,7 +60,6 @@ if st.button("Run Master Analysis"):
                 forecast = model.predict(latest_data)[0]
                 current_price = data['Close'].iloc[-1]
                 
-                # --- MARKET PSYCHOLOGY ANALYSIS ---
                 st.write("📰 Scanning live market sentiment & news...")
                 news = stock.news
                 bullish_score = 0
@@ -75,7 +71,6 @@ if st.button("Run Master Analysis"):
                     if news_texts:
                         if hf_token:
                             api_result = query_finbert_api(news_texts, hf_token)
-                            
                             if api_result and isinstance(api_result, list) and "error" not in api_result:
                                 engine_used = "FinBERT Cloud AI (Elite)"
                                 for res_list in api_result:
@@ -103,9 +98,6 @@ if st.button("Run Master Analysis"):
                 
                 status.update(label="Analysis Complete!", state="complete", expanded=False)
 
-        # ----------------------------------------------------
-        # THE DUAL-TAB INTERFACE
-        # ----------------------------------------------------
         if not data.empty:
             tab1, tab2 = st.tabs(["🏦 Swing & AI Forecast", "⚡ Day Trading Engine"])
             
@@ -123,11 +115,46 @@ if st.button("Run Master Analysis"):
                     
                 col2.metric(label="5-Day AI Target", value=f"${forecast:.2f}", delta=delta_display)
                 
-                st.markdown("#### Price History (1 Year)")
-                fig_daily = go.Figure(data=[go.Candlestick(x=data.index,
-                                open=data['Open'], high=data['High'],
-                                low=data['Low'], close=data['Close'], name='Daily')])
-                fig_daily.update_layout(xaxis_rangeslider_visible=False, height=300, margin=dict(l=10,r=10,t=10,b=10))
+                st.markdown("#### Price History & 5-Day Forecast Path")
+                
+                # Filter down to the last 45 days of history so the chart isn't too cramped to see the forecast
+                recent_data = data.iloc[-45:]
+                
+                # Build base candlestick chart
+                fig_daily = go.Figure(data=[go.Candlestick(
+                    x=recent_data.index,
+                    open=recent_data['Open'], high=recent_data['High'],
+                    low=recent_data['Low'], close=recent_data['Close'], 
+                    name='Historical Price'
+                )])
+                
+                # Generate future dates for the timeline (skipping weekends roughly)
+                last_date = recent_data.index[-1]
+                future_date = last_date + timedelta(days=5)
+                
+                # Create the prediction line data arrays
+                forecast_dates = [last_date, future_date]
+                forecast_prices = [current_price, forecast]
+                
+                # Choose line color based on direction
+                line_color = '#00E676' if forecast_diff >= 0 else '#FF1744'
+                
+                # Overlay the dotted forecast projection line
+                fig_daily.add_trace(go.Scatter(
+                    x=forecast_dates, 
+                    y=forecast_prices,
+                    mode='lines+markers',
+                    name='AI Forecast Path',
+                    line=dict(color=line_color, width=3, dash='dash'),
+                    marker=dict(size=8, symbol='circle')
+                ))
+                
+                fig_daily.update_layout(
+                    xaxis_rangeslider_visible=False, 
+                    height=350, 
+                    margin=dict(l=10, r=10, t=10, b=10),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                )
                 st.plotly_chart(fig_daily, use_container_width=True)
                 
                 st.markdown("#### AI Diagnostics")
@@ -150,7 +177,7 @@ if st.button("Run Master Analysis"):
                 st.markdown(f"### ⚡ Intraday Momentum: {ticker}")
                 
                 if intraday.empty:
-                    st.warning("Intraday data unavailable. (Note: Live 5m data is restricted outside market hours / recent trading sessions).")
+                    st.warning("Intraday data unavailable right now.")
                 else:
                     intra_current = intraday['Close'].iloc[-1]
                     intra_high = intraday['High'].iloc[-len(intraday.loc[intraday.index.date == intraday.index.date[-1]]):].max()
@@ -169,7 +196,7 @@ if st.button("Run Master Analysis"):
                     position_pct = max(0, min(100, position_pct)) 
                     
                     st.progress(position_pct / 100)
-                    st.caption(f"Price is sitting at {position_pct}% of today's total high-low bracket. (Near 100% = Breakout, Near 0% = Support Crash)")
+                    st.caption(f"Price is sitting at {position_pct}% of today's total high-low bracket.")
                     
                     st.markdown("#### 5-Minute Live Momentum Chart")
                     fig_intra = go.Figure(data=[go.Candlestick(x=intraday.index,
@@ -180,11 +207,11 @@ if st.button("Run Master Analysis"):
                     
                     st.markdown("#### Trading Activity Alert")
                     if intra_volume > (avg_volume * 1.5):
-                        st.success(f"🔥 VOLUME SURGE: {intra_volume:,} shares traded in the last 5 mins! High volatility imminent.")
+                        st.success(f"🔥 VOLUME SURGE: {intra_volume:,} shares traded.")
                     elif intra_volume < (avg_volume * 0.5):
-                        st.error(f"💤 SLEEPY VOLUME: {intra_volume:,} shares. Price action is stagnant right now.")
+                        st.error(f"💤 SLEEPY VOLUME: {intra_volume:,} shares.")
                     else:
-                        st.info(f"⚖️ NORMAL VOLUME: {intra_volume:,} shares. Steady session behavior.")
+                        st.info(f"⚖️ NORMAL VOLUME: {intra_volume:,} shares.")
 
     except Exception as e:
         st.error("An error occurred during analysis.")
