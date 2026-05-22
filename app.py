@@ -14,24 +14,21 @@ st.write("Advanced Market Analysis & Day Trading Engine")
 
 # --- Automated Token Detection ---
 hf_token = st.secrets.get("HF_TOKEN", None)
-
 st.sidebar.header("⚙️ Dashboard Controls")
 
 if not hf_token:
     hf_token = st.sidebar.text_input("Hugging Face Token (Optional)", type="password", 
                                      help="Set up HF_TOKEN in your App Secrets to hide this box.")
 
-# --- SIDEBAR PRICE FILTER SLIDER ---
 max_price_filter = st.sidebar.slider(
     "Filter Watchlist by Max Price ($):", 
     min_value=10, 
     max_value=1000, 
     value=500, 
-    step=10,
-    help="Slide left to only show cheaper stocks in your upfront watchlist."
+    step=10
 )
 
-# Helper function to talk to Hugging Face's serverless AI
+# Helper function
 def query_finbert_api(text_list, token):
     api_url = "https://api-inference.huggingface.co/models/ProsusAI/finbert"
     headers = {"Authorization": f"Bearer {token}"}
@@ -41,16 +38,15 @@ def query_finbert_api(text_list, token):
     except:
         return None
 
-# --- UPGRADED BULLETPROOF BATCH SCANNER ---
+# Scanner with Smart Cache
+@st.cache_data(ttl=900, show_spinner=False)
 def scan_market_leaders_fast():
     watchlist = ["AAPL", "NVDA", "TSLA", "AMD", "MSFT", "AMZN", "META", "GOOGL"]
     scanned_data = []
     try:
-        # Pull everything at once in a single lightweight web request
-        df = yf.download(watchlist, period="2d", progress=False)
-        
-        if not df.empty and 'Close' in df.columns.levels[0]:
-            close_prices = df['Close']
+        df = yf.download(watchlist, period="5d", progress=False) 
+        if not df.empty:
+            close_prices = df['Close'] if isinstance(df.columns, pd.MultiIndex) else df
             for t in watchlist:
                 if t in close_prices.columns:
                     price_series = close_prices[t].dropna()
@@ -59,220 +55,86 @@ def scan_market_leaders_fast():
                         close_prev = price_series.iloc[-2]
                         pct_change = ((close_today - close_prev) / close_prev) * 100
                         scanned_data.append({"ticker": t, "price": close_today, "change": pct_change})
-    except Exception as e:
-        pass # Fallback gracefully if Yahoo Finance experiences a hiccup
-        
+    except: pass
     return pd.DataFrame(scanned_data)
 
-# Run the upfront fast scan
+# --- UI Render ---
 st.markdown("### 🔥 Live Momentum Watchlist")
-st.caption(f"Showing market leaders priced under **${max_price_filter}**:")
-
-with st.spinner("Scanning market leaders..."):
+with st.spinner("Scanning..."):
     scanner_df = scan_market_leaders_fast()
 
 if not scanner_df.empty:
-    # Filter the results in real-time based on your slider position
-    filtered_df = scanner_df[scanner_df['price'] <= max_price_filter]
-    filtered_df = filtered_df.sort_values(by="change", ascending=False)
-    
+    filtered_df = scanner_df[scanner_df['price'] <= max_price_filter].sort_values(by="change", ascending=False)
     if not filtered_df.empty:
-        # Dynamically create columns based on how many stocks match your filter
         display_count = min(4, len(filtered_df))
         cols = st.columns(display_count)
         for i, row in enumerate(filtered_df.head(display_count).itertuples()):
-            with cols[i]:
-                st.metric(
-                    label=row.ticker, 
-                    value=f"${row.price:.2f}", 
-                    delta=f"{row.change:+.2f}%"
-                )
-    else:
-        st.warning(f"⚠️ No watchlist stocks found under ${max_price_filter}. Adjust the sidebar slider to a higher value.")
-else:
-    st.info("💡 Live feed temporarily unavailable. Enter a ticker directly below to begin.")
+            cols[i].metric(label=row.ticker, value=f"${row.price:.2f}", delta=f"{row.change:+.2f}%")
 
 st.markdown("---")
-
-# --- User Input Deep Dive ---
 st.markdown("### 🔍 Run Deep AI Analysis")
-ticker = st.text_input("Enter Ticker Symbol to analyze:", "AAPL").upper()
+ticker = st.text_input("Enter Ticker Symbol:", "AAPL").upper()
 
 if st.button("Run Master Analysis"):
-    try:
-        with st.status("Initializing ProQuant AI Engine...", expanded=True) as status:
-            
-            st.write("📡 Fetching multi-timeframe market data...")
-            stock = yf.Ticker(ticker)
-            data = stock.history(period="1y")      
-            intraday = stock.history(period="5d", interval="5m")  
-            
-            if data.empty:
-                status.update(label="Data Error", state="error", expanded=True)
-                st.error("No data found. Please check the ticker symbol.")
-            else:
-                st.write("🧠 Running predictive mathematical model...")
-                df = data.copy()
-                df['Target'] = df['Close'].shift(-5)
-                df.dropna(inplace=True)
-                
-                X = df[['Open', 'High', 'Low', 'Close', 'Volume']]
-                y = df['Target']
-                
-                model = RandomForestRegressor(n_estimators=100, random_state=42)
-                model.fit(X, y)
-                
-                latest_data = data[['Open', 'High', 'Low', 'Close', 'Volume']].iloc[-1:]
-                forecast = model.predict(latest_data)[0]
-                current_price = data['Close'].iloc[-1]
-                
-                st.write("📰 Scanning live market sentiment & news...")
-                news = stock.news
-                bullish_score = 0
-                bearish_score = 0
-                engine_used = "TextBlob (Basic)"
-                
-                if news:
-                    news_texts = [item.get('title', '') for item in news[:5] if 'title' in item] 
-                    if news_texts:
-                        if hf_token:
-                            api_result = query_finbert_api(news_texts, hf_token)
-                            if api_result and isinstance(api_result, list) and "error" not in api_result:
-                                engine_used = "FinBERT Cloud AI (Elite)"
-                                for res_list in api_result:
-                                    if isinstance(res_list, list):
-                                        for item in res_list:
-                                            if item.get('label') == 'positive':
-                                                bullish_score += item.get('score', 0)
-                                            elif item.get('label') == 'negative':
-                                                bearish_score += item.get('score', 0)
-                            else:
-                                engine_used = "TextBlob (API Fallback)"
-                                for text in news_texts:
-                                    analysis = TextBlob(text)
-                                    if analysis.sentiment.polarity > 0.1:
-                                        bullish_score += analysis.sentiment.polarity
-                                    elif analysis.sentiment.polarity < -0.1:
-                                        bearish_score += abs(analysis.sentiment.polarity)
-                        else:
-                            for text in news_texts:
-                                analysis = TextBlob(text)
-                                if analysis.sentiment.polarity > 0.1:
-                                    bullish_score += analysis.sentiment.polarity
-                                elif analysis.sentiment.polarity < -0.1:
-                                    bearish_score += abs(analysis.sentiment.polarity)
-                
-                status.update(label="Analysis Complete!", state="complete", expanded=False)
+    with st.status("Analyzing...", expanded=True) as status:
+        stock = yf.Ticker(ticker)
+        data = stock.history(period="1y")
+        intraday = stock.history(period="5d", interval="5m")
+        
+        if data.empty:
+            st.error("Invalid Ticker")
+        else:
+            # Model Logic
+            df = data.copy()
+            df['Target'] = df['Close'].shift(-5)
+            df.dropna(inplace=True)
+            model = RandomForestRegressor(n_estimators=100).fit(df[['Open', 'High', 'Low', 'Close', 'Volume']], df['Target'])
+            forecast = model.predict(data[['Open', 'High', 'Low', 'Close', 'Volume']].iloc[-1:])[0]
+            current_price = data['Close'].iloc[-1]
+            status.update(label="Analysis Complete!", state="complete", expanded=False)
 
-        if not data.empty:
+            # --- TABS ---
             tab1, tab2 = st.tabs(["🏦 Swing & AI Forecast", "⚡ Day Trading Engine"])
             
-            # --- TAB 1: LONG TERM FORECAST ---
             with tab1:
-                st.markdown(f"### 📊 AI Forecast Outlook: {ticker}")
+                st.markdown(f"### 📊 AI Forecast: {ticker}")
                 col1, col2 = st.columns(2)
-                col1.metric(label="Current Price", value=f"${current_price:.2f}")
-                
-                forecast_diff = forecast - current_price
-                if forecast_diff >= 0:
-                    delta_display = f"+${forecast_diff:.2f}"
-                else:
-                    delta_display = f"-${abs(forecast_diff):.2f}"
-                    
-                col2.metric(label="5-Day AI Target", value=f"${forecast:.2f}", delta=delta_display)
-                
-                st.markdown("#### Price History & 5-Day Forecast Path")
-                recent_data = data.iloc[-45:]
-                
-                fig_daily = go.Figure(data=[go.Candlestick(
-                    x=recent_data.index,
-                    open=recent_data['Open'], high=recent_data['High'],
-                    low=recent_data['Low'], close=recent_data['Close'], 
-                    name='Historical Price'
-                )])
-                
-                last_date = recent_data.index[-1]
-                future_date = last_date + timedelta(days=5)
-                
-                forecast_dates = [last_date, future_date]
-                forecast_prices = [current_price, forecast]
-                
-                line_color = '#00E676' if forecast_diff >= 0 else '#FF1744'
-                
-                fig_daily.add_trace(go.Scatter(
-                    x=forecast_dates, 
-                    y=forecast_prices,
-                    mode='lines+markers',
-                    name='AI Forecast Path',
-                    line=dict(color=line_color, width=3, dash='dash'),
-                    marker=dict(size=8, symbol='circle')
-                ))
-                
-                fig_daily.update_layout(
-                    xaxis_rangeslider_visible=False, 
-                    height=350, 
-                    margin=dict(l=10, r=10, t=10, b=10),
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-                )
-                st.plotly_chart(fig_daily, use_container_width=True)
-                
-                st.markdown("#### AI Diagnostics")
-                st.caption(f"Sentiment Analysis active via: **{engine_used}**")
-                
-                if forecast > current_price:
-                    st.success("🤖 Mathematical Model: BULLISH")
-                else:
-                    st.error("🤖 Mathematical Model: BEARISH")
-                    
-                if bullish_score > bearish_score:
-                    st.success("📰 Market Psychology: BULLISH")
-                elif bearish_score > bullish_score:
-                    st.error("📰 Market Psychology: BEARISH")
-                else:
-                    st.info("⚖️ Market Psychology: NEUTRAL")
+                col1.metric("Current Price", f"${current_price:.2f}")
+                col2.metric("5-Day AI Target", f"${forecast:.2f}", delta=f"${forecast - current_price:.2f}")
 
-            # --- TAB 2: DAY TRADING ENGINE ---
-            with tab2:
-                st.markdown(f"### ⚡ Intraday Momentum: {ticker}")
+                # --- NEW: RISK MANAGEMENT CALCULATOR ---
+                st.markdown("---")
+                st.subheader("🛡️ Risk Management Calculator")
+                r1, r2, r3 = st.columns(3)
+                entry_input = r1.number_input("Entry Price", value=float(current_price))
+                sl_input = r2.number_input("Stop Loss", value=float(current_price * 0.95))
+                tp_input = r3.number_input("Target Price", value=float(forecast))
+
+                risk = entry_input - sl_input
+                reward = tp_input - entry_input
                 
-                if intraday.empty:
-                    st.warning("Intraday data unavailable right now.")
+                if risk > 0:
+                    ratio = reward / risk
+                    st.metric("Risk/Reward Ratio", f"{ratio:.2f} : 1")
+                    if ratio >= 2.0:
+                        st.success(f"✅ GOOD TRADE: Potential reward is {ratio:.1f}x your risk.")
+                    elif ratio > 1.0:
+                        st.warning("⚠️ CAUTION: Reward is less than 2x your risk.")
+                    else:
+                        st.error("❌ AVOID: You are risking more than you stand to gain.")
                 else:
-                    intra_current = intraday['Close'].iloc[-1]
-                    intra_high = intraday['High'].iloc[-len(intraday.loc[intraday.index.date == intraday.index.date[-1]]):].max()
-                    intra_low = intraday['Low'].iloc[-len(intraday.loc[intraday.index.date == intraday.index.date[-1]]):].min()
-                    intra_volume = intraday['Volume'].iloc[-1]
-                    avg_volume = intraday['Volume'].mean()
-                    
-                    c1, c2, c3 = st.columns(3)
-                    c1.metric(label="Live Price", value=f"${intra_current:.2f}")
-                    c2.metric(label="Today's High", value=f"${intra_high:.2f}")
-                    c3.metric(label="Today's Low", value=f"${intra_low:.2f}")
-                    
-                    st.markdown("#### Today's Session Position")
-                    total_range = (intra_high - intra_low) if (intra_high - intra_low) != 0 else 1
-                    position_pct = int(((intra_current - intra_low) / total_range) * 100)
-                    position_pct = max(0, min(100, position_pct)) 
-                    
-                    st.progress(position_pct / 100)
-                    st.caption(f"Price is sitting at {position_pct}% of today's total high-low bracket.")
-                    
-                    st.markdown("#### 5-Minute Live Momentum Chart")
-                    fig_intra = go.Figure(data=[go.Candlestick(x=intraday.index,
-                                    open=intraday['Open'], high=intraday['High'],
-                                    low=intraday['Low'], close=intraday['Close'], name='5m Bars')])
-                    fig_intra.update_layout(xaxis_rangeslider_visible=False, height=300, margin=dict(l=10,r=10,t=10,b=10))
+                    st.error("Check your numbers: Stop Loss must be lower than Entry for a Buy trade.")
+
+                # Charting
+                fig = go.Figure(data=[go.Candlestick(x=data.index[-45:], open=data['Open'][-45:], high=data['High'][-45:], low=data['Low'][-45:], close=data['Close'][-45:])])
+                fig.add_trace(go.Scatter(x=[data.index[-1], data.index[-1] + timedelta(days=5)], y=[current_price, forecast], mode='lines+markers', line=dict(color='#00E676', width=3, dash='dash')))
+                st.plotly_chart(fig, use_container_width=True)
+
+            with tab2:
+                st.markdown(f"### ⚡ Intraday Momentum")
+                if not intraday.empty:
+                    intra_curr = intraday['Close'].iloc[-1]
+                    st.metric("Live Price", f"${intra_curr:.2f}")
+                    fig_intra = go.Figure(data=[go.Candlestick(x=intraday.index, open=intraday['Open'], high=intraday['High'], low=intraday['Low'], close=intraday['Close'])])
                     st.plotly_chart(fig_intra, use_container_width=True)
                     
-                    st.markdown("#### Trading Activity Alert")
-                    if intra_volume > (avg_volume * 1.5):
-                        st.success(f"🔥 VOLUME SURGE: {intra_volume:,} shares traded.")
-                    elif intra_volume < (avg_volume * 0.5):
-                        st.error(f"💤 SLEEPY VOLUME: {intra_volume:,} shares.")
-                    else:
-                        st.info(f"⚖️ NORMAL VOLUME: {intra_volume:,} shares.")
-
-    except Exception as e:
-        st.error("An error occurred during analysis.")
-        st.error(f"System Log: {e}")
-        
