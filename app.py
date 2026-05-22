@@ -101,7 +101,21 @@ st.markdown("---")
 
 # --- User Input Deep Dive ---
 st.markdown("### 🔍 Run Deep AI Analysis")
-ticker = st.text_input("Enter Ticker Symbol to analyze:", "AAPL").upper()
+
+# --- NEW: TIMEFRAME SELECTOR ---
+input_col1, input_col2 = st.columns([2, 1])
+with input_col1:
+    ticker = st.text_input("Enter Ticker Symbol to analyze:", "AAPL").upper()
+with input_col2:
+    horizon_choice = st.selectbox("AI Forecast Horizon:", ["1 Week (5 Days)", "2 Weeks (10 Days)"])
+
+# Determine the math shift based on user selection
+if "1 Week" in horizon_choice:
+    shift_days = 5
+    calendar_days = 7
+else:
+    shift_days = 10
+    calendar_days = 14
 
 if st.button("Run Master Analysis"):
     try:
@@ -116,9 +130,11 @@ if st.button("Run Master Analysis"):
                 status.update(label="Data Error", state="error", expanded=True)
                 st.error("No data found. Please check the ticker symbol.")
             else:
-                st.write("🧠 Running predictive mathematical model...")
+                st.write(f"🧠 Running predictive mathematical model for {horizon_choice}...")
                 df = data.copy()
-                df['Target'] = df['Close'].shift(-5)
+                
+                # --- DYNAMIC TARGET SHIFT based on user selection ---
+                df['Target'] = df['Close'].shift(-shift_days)
                 df.dropna(inplace=True)
                 
                 X = df[['Open', 'High', 'Low', 'Close', 'Volume']]
@@ -184,7 +200,8 @@ if st.button("Run Master Analysis"):
                 else:
                     delta_display = f"-${abs(forecast_diff):.2f}"
                     
-                col2.metric(label="5-Day AI Target", value=f"${forecast:.2f}", delta=delta_display)
+                # Dynamically update the metric label
+                col2.metric(label=f"AI Target ({horizon_choice})", value=f"${forecast:.2f}", delta=delta_display)
 
                 # --- RISK MANAGEMENT CALCULATOR ---
                 st.markdown("---")
@@ -213,7 +230,7 @@ if st.button("Run Master Analysis"):
                     st.error("Check your numbers: Stop Loss must be lower than Entry for a standard Long trade.")
                 
                 # Charting
-                st.markdown("#### Price History & 5-Day Forecast Path")
+                st.markdown(f"#### Price History & {horizon_choice} Forecast Path")
                 recent_data = data.iloc[-45:]
                 
                 fig_daily = go.Figure(data=[go.Candlestick(
@@ -224,7 +241,8 @@ if st.button("Run Master Analysis"):
                 )])
                 
                 last_date = recent_data.index[-1]
-                future_date = last_date + timedelta(days=5)
+                # Extend the line out dynamically based on calendar days
+                future_date = last_date + timedelta(days=calendar_days)
                 
                 forecast_dates = [last_date, future_date]
                 forecast_prices = [current_price, forecast]
