@@ -53,7 +53,7 @@ max_price_filter = st.sidebar.slider(
     help="Slide left to only show cheaper stocks in your upfront watchlist."
 )
 
-# --- API FUNCTION (Syntax fixed) ---
+# --- API FUNCTION ---
 def query_finbert_api(text_list, token):
     api_url = "https://api-inference.huggingface.co/models/ProsusAI/finbert"
     headers = {"Authorization": f"Bearer {token}"}
@@ -63,7 +63,7 @@ def query_finbert_api(text_list, token):
     except:
         return None
 
-# --- WATCHLIST SCANNER (MultiIndex fixed) ---
+# --- WATCHLIST SCANNER ---
 @st.cache_data(ttl=900, show_spinner=False)
 def scan_market_leaders_fast(watchlist):
     scanned_data = []
@@ -151,8 +151,9 @@ else:
     shift_days = 10
     calendar_days = 14
 
+# --- MASTER ANALYSIS BLOCK ---
 if st.button("Run Master Analysis"):
-    try:
+    try: # <--- THIS IS THE TRY BLOCK THAT WAS MISSING ITS EXCEPT BLOCK!
         with st.status("Initializing ProQuant AI Engine...", expanded=True) as status:
             st.write("📡 Fetching multi-timeframe market data...")
             stock = yf.Ticker(ticker)
@@ -279,12 +280,13 @@ if st.button("Run Master Analysis"):
                 
                 st.markdown("#### AI Diagnostics & Reasoning")
                 
+                # ---> FIX: ADDED BACKSLASHES BEFORE DOLLAR SIGNS SO IT DOESN'T LOOK LIKE A MATH EQUATION
                 if forecast > current_price:
                     st.success("🤖 Mathematical Model: BULLISH")
-                    st.write(f"**Specifics:** A Random Forest algorithm analyzed 1 year of daily technical data (Open, High, Low, Close, and Volume). Based on current momentum patterns, it projects the current price of **${current_price:.2f}** will rise to **${forecast:.2f}**. This is a mathematically predicted gain of **${forecast_diff:.2f}** over the next {horizon_choice}.")
+                    st.write(f"**Specifics:** A Random Forest algorithm analyzed 1 year of daily technical data (Open, High, Low, Close, and Volume). Based on current momentum patterns, it projects the current price of **\${current_price:.2f}** will rise to **\${forecast:.2f}**. This is a mathematically predicted gain of **\${forecast_diff:.2f}** over the next {horizon_choice}.")
                 else:
                     st.error("🤖 Mathematical Model: BEARISH")
-                    st.write(f"**Specifics:** A Random Forest algorithm analyzed 1 year of daily technical data (Open, High, Low, Close, and Volume). Based on current weakness patterns, it projects the current price of **${current_price:.2f}** will fall to **${forecast:.2f}**. This is a mathematically predicted drop of **${abs(forecast_diff):.2f}** over the next {horizon_choice}.")
+                    st.write(f"**Specifics:** A Random Forest algorithm analyzed 1 year of daily technical data (Open, High, Low, Close, and Volume). Based on current weakness patterns, it projects the current price of **\${current_price:.2f}** will fall to **\${forecast:.2f}**. This is a mathematically predicted drop of **\${abs(forecast_diff):.2f}** over the next {horizon_choice}.")
                     
                 if num_headlines > 0:
                     if bullish_score > bearish_score:
@@ -341,6 +343,7 @@ if st.button("Run Master Analysis"):
                     else:
                         st.info(f"⚖️ NORMAL VOLUME: {intra_volume:,} shares.")
 
+    # ---> FIX: THIS IS THE EXCEPT BLOCK THAT WAS MISSING FROM YOUR SCREENSHOT
     except Exception as e:
         st.error("An error occurred during analysis.")
         st.error(f"System Log: {e}")
