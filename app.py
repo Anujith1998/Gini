@@ -153,7 +153,7 @@ else:
 
 # --- MASTER ANALYSIS BLOCK ---
 if st.button("Run Master Analysis"):
-    try: # <--- THIS IS THE TRY BLOCK THAT WAS MISSING ITS EXCEPT BLOCK!
+    try: 
         with st.status("Initializing ProQuant AI Engine...", expanded=True) as status:
             st.write("📡 Fetching multi-timeframe market data...")
             stock = yf.Ticker(ticker)
@@ -257,12 +257,29 @@ if st.button("Run Master Analysis"):
                     st.error("Check your numbers: Stop Loss must be lower than Entry for a standard Long trade.")
                 
                 st.markdown(f"#### Price History & {horizon_choice} Forecast Path")
-                recent_data = data.iloc[-45:]
+                
+                # ---> NEW CHART DATA ADDED HERE <---
+                # Calculate Moving Averages on the full dataset before slicing
+                data['SMA_20'] = data['Close'].rolling(window=20).mean()
+                data['SMA_50'] = data['Close'].rolling(window=50).mean()
+                
+                # Expand the view from 45 days to 90 days for better context
+                recent_data = data.iloc[-90:]
                 
                 fig_daily = go.Figure(data=[go.Candlestick(
                     x=recent_data.index, open=recent_data['Open'], high=recent_data['High'],
                     low=recent_data['Low'], close=recent_data['Close'], name='Historical Price'
                 )])
+                
+                # Add the 20-Day and 50-Day SMA lines to the chart
+                fig_daily.add_trace(go.Scatter(
+                    x=recent_data.index, y=recent_data['SMA_20'], 
+                    mode='lines', name='20-Day SMA', line=dict(color='#29B6F6', width=1.5)
+                ))
+                fig_daily.add_trace(go.Scatter(
+                    x=recent_data.index, y=recent_data['SMA_50'], 
+                    mode='lines', name='50-Day SMA', line=dict(color='#FFA726', width=1.5)
+                ))
                 
                 last_date = recent_data.index[-1]
                 future_date = last_date + timedelta(days=calendar_days)
@@ -275,12 +292,17 @@ if st.button("Run Master Analysis"):
                     marker=dict(size=8, symbol='circle')
                 ))
                 
-                fig_daily.update_layout(xaxis_rangeslider_visible=False, height=350, margin=dict(l=10, r=10, t=10, b=10))
+                # Make the chart slightly taller to accommodate the extra data lines
+                fig_daily.update_layout(
+                    xaxis_rangeslider_visible=False, 
+                    height=450, 
+                    margin=dict(l=10, r=10, t=10, b=10),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                )
                 st.plotly_chart(fig_daily, use_container_width=True)
                 
                 st.markdown("#### AI Diagnostics & Reasoning")
                 
-                # ---> FIX: ADDED BACKSLASHES BEFORE DOLLAR SIGNS SO IT DOESN'T LOOK LIKE A MATH EQUATION
                 if forecast > current_price:
                     st.success("🤖 Mathematical Model: BULLISH")
                     st.write(f"**Specifics:** A Random Forest algorithm analyzed 1 year of daily technical data (Open, High, Low, Close, and Volume). Based on current momentum patterns, it projects the current price of **\${current_price:.2f}** will rise to **\${forecast:.2f}**. This is a mathematically predicted gain of **\${forecast_diff:.2f}** over the next {horizon_choice}.")
@@ -343,7 +365,6 @@ if st.button("Run Master Analysis"):
                     else:
                         st.info(f"⚖️ NORMAL VOLUME: {intra_volume:,} shares.")
 
-    # ---> FIX: THIS IS THE EXCEPT BLOCK THAT WAS MISSING FROM YOUR SCREENSHOT
     except Exception as e:
         st.error("An error occurred during analysis.")
         st.error(f"System Log: {e}")
