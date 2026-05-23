@@ -1,0 +1,15 @@
+[theme]
+# The main accent color (Soft futuristic AI Blue)
+primaryColor = "#A8C7FA" 
+
+# The main background color (Deep Gemini Dark Grey)
+backgroundColor = "#131314" 
+
+# The sidebar and secondary background color (Slightly lighter grey)
+secondaryBackgroundColor = "#1E1F22" 
+
+# The text color (Soft white for high readability without eye strain)
+textColor = "#E3E3E3" 
+
+# Clean, modern font
+font = "sans serif"
