@@ -20,8 +20,11 @@ hf_token = st.secrets.get("HF_TOKEN", None)
 st.sidebar.header("⚙️ Dashboard Controls")
 
 if not hf_token:
-    hf_token = st.sidebar.text_input("Hugging Face Token (Optional)", type="password", 
-                                     help="Set up HF_TOKEN in your App Secrets to hide this box.")
+    hf_token = st.sidebar.text_input(
+        "Hugging Face Token (Optional)", 
+        type="password", 
+        help="Set up HF_TOKEN in your App Secrets to hide this box."
+    )
 
 st.sidebar.markdown("---")
 st.sidebar.header("📝 Personal Watchlist")
@@ -30,7 +33,11 @@ user_watchlist_input = st.sidebar.text_input(
     value="AAPL, NVDA, TSLA, AMD, MSFT, AMZN, META, GOOGL"
 )
 
-parsed_watchlist = [ticker.strip().upper() for ticker in user_watchlist_input.split(",") if ticker.strip()]
+parsed_watchlist = [
+    ticker.strip().upper() 
+    for ticker in user_watchlist_input.split(",") 
+    if ticker.strip()
+]
 watchlist_tuple = tuple(parsed_watchlist)
 
 st.sidebar.markdown("---")
@@ -54,7 +61,7 @@ max_price_filter = st.sidebar.slider(
 
 # --- SMART RESOLVER FUNCTION ---
 def resolve_company_name(input_query):
-    """Translates regular company names into official trading tickers via Yahoo Finance backend."""
+    """Translates company names into official trading tickers via Yahoo Finance."""
     cleaned_query = input_query.strip()
     
     if len(cleaned_query) <= 5 and cleaned_query.isalpha() and cleaned_query.isupper():
@@ -62,7 +69,11 @@ def resolve_company_name(input_query):
         
     url = "https://query1.finance.yahoo.com/v1/finance/search"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        )
     }
     params = {"q": cleaned_query, "lang": "en-US", "region": "US"}
     
@@ -79,20 +90,18 @@ def resolve_company_name(input_query):
 
 # --- RESILIENT NEWS HARVESTER ---
 def get_resilient_news(stock_obj, ticker_str):
-    """Gathers news headlines via yfinance with an automatic hot-swap to raw RSS parsing if Yahoo limits the primary endpoint."""
+    """Gathers news headlines via yfinance or falls back to raw RSS streams."""
     news_data = []
     
-    # Track 1: Try standard library scrape
     try:
         news_data = stock_obj.news
     except Exception:
         pass
         
-    # Track 2: Hot-swap to unblockable backup RSS Feed if standard method returns blank
     if not news_data:
         try:
             rss_url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker_str}"
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
             response = requests.get(rss_url, headers=headers, timeout=5)
             if response.status_code == 200:
                 root = ET.fromstring(response.content)
@@ -181,7 +190,10 @@ if st.button("Run Master Multi-Week Analysis"):
             
             if data.empty:
                 status.update(label="Data Error", state="error", expanded=True)
-                st.error(f"Could not identify or pull market data for '{user_search_input}' (Resolved as: {ticker}). Please try typing a more specific name.")
+                st.error(
+                    f"Could not identify or pull market data for '{user_search_input}' "
+                    f"(Resolved as: {ticker}). Please try typing a more specific name."
+                )
             else:
                 st.write("🧠 Training Cascade Models (Weeks 1, 2, and 3)...")
                 features = ['Open', 'High', 'Low', 'Close', 'Volume']
@@ -315,13 +327,56 @@ if st.button("Run Master Multi-Week Analysis"):
                 net_move = forecast_w3 - current_price
                 if net_move >= 0:
                     st.success("🤖 Mathematical Model Cascade: NET BULLISH OUTLOOK")
-                    st.write(f"**Specifics:** Three distinct Random Forest setups calculated future intervals from a base price of **\${current_price:.2f}**. The math displays sequential shifts leading to a cumulative target of **\${forecast_w3:.2f}** over the next 3 weeks.")
+                    st.write(
+                        f"**Specifics:** Three distinct Random Forest setups calculated "
+                        f"future intervals from a base price of **\${current_price:.2f}**. "
+                        f"The math displays sequential shifts leading to a cumulative target "
+                        f"of **\${forecast_w3:.2f}** over the next 3 weeks."
+                    )
                 else:
                     st.error("🤖 Mathematical Model Cascade: NET BEARISH OUTLOOK")
-                    st.write(f"**Specifics:** Three distinct Random Forest setups calculated future intervals from a base price of **\${current_price:.2f}**. The math displays sequential degradation leading to a cumulative target of **\${forecast_w3:.2f}** over the next 3 weeks.")
+                    st.write(
+                        f"**Specifics:** Three distinct Random Forest setups calculated "
+                        f"future intervals from a base price of **\${current_price:.2f}**. "
+                        f"The math displays sequential degradation leading to a cumulative target "
+                        f"of **\${forecast_w3:.2f}** over the next 3 weeks."
+                    )
                     
                 if num_headlines > 0:
                     if bullish_score > bearish_score:
-                        st.success(f"📰 Market Psychology ({engine_used}): BULLISH ({num_headlines} Headlines Scanned)")
+                        st.success(
+                            f"📰 Market Psychology ({engine_used}): "
+                            f"BULLISH ({num_headlines} Headlines Scanned)"
+                        )
                     elif bearish_score > bullish_score:
-                        st.error(f"📰 Market Psychology
+                        st.error(
+                            f"📰 Market Psychology ({engine_used}): "
+                            f"BEARISH ({num_headlines} Headlines Scanned)"
+                        )
+                    else:
+                        st.info(
+                            f"⚖️ Market Psychology ({engine_used}): "
+                            f"NEUTRAL ({num_headlines} Headlines Scanned)"
+                        )
+                else:
+                    st.warning("⚠️ Sentiment Warning: No active news headlines available for this asset currently.")
+
+            with tab2:
+                st.markdown(f"### ⚡ Intraday Momentum: {ticker}")
+                if not intraday.empty:
+                    intra_current = intraday['Close'].iloc[-1]
+                    intra_high = intraday['High'].max()
+                    intra_low = intraday['Low'].min()
+                    
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric(label="Live Price", value=f"${intra_current:.2f}")
+                    c2.metric(label="Session High", value=f"${intra_high:.2f}")
+                    c3.metric(label="Session Low", value=f"${intra_low:.2f}")
+                    
+                    total_range = (intra_high - intra_low) if (intra_high - intra_low) != 0 else 1
+                    position_pct = int(((intra_current - intra_low) / total_range) * 100)
+                    st.progress(max(0, min(100, position_pct)) / 100)
+                    st.caption(f"Price is sitting at {position_pct}% of today's total bracket.")
+
+    except Exception as e:
+        st.error(f"System Matrix Error: {e}")
