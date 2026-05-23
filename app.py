@@ -51,7 +51,34 @@ max_price_filter = st.sidebar.slider(
     step=10
 )
 
-# --- API FUNCTION ---
+# --- SMART RESOLVER FUNCTION ---
+def resolve_company_name(input_query):
+    """Translates regular company names into official trading tickers via Yahoo Finance backend."""
+    cleaned_query = input_query.strip()
+    
+    # Quick Pass: If it's already a short string and fully uppercase alphabetic, keep it as is
+    if len(cleaned_query) <= 5 and cleaned_query.isalpha() and cleaned_query.isupper():
+        return cleaned_query
+        
+    url = "https://query1.finance.yahoo.com/v1/finance/search"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    params = {"q": cleaned_query, "lang": "en-US", "region": "US"}
+    
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=5)
+        response_data = response.json()
+        if response_data.get('quotes') and len(response_data['quotes']) > 0:
+            # Safely grab the first high-confidence matching ticker symbol found
+            resolved_ticker = response_data['quotes'][0]['symbol']
+            return resolved_ticker.upper()
+    except Exception:
+        pass
+        
+    return cleaned_query.upper() # Fallback to original input in uppercase if network lookup hiccups
+
+# --- SENTIMENT API FUNCTION ---
 def query_finbert_api(text_list, token):
     api_url = "https://api-inference.huggingface.co/models/ProsusAI/finbert"
     headers = {"Authorization": f"Bearer {token}"}
@@ -110,12 +137,17 @@ else:
 st.markdown("---")
 st.markdown("### 🔍 Run Deep AI Multi-Week Analysis")
 
-ticker = st.text_input("Enter Ticker Symbol to analyze:", "AAPL").upper()
+# User types standard words here instead of codes!
+user_search_input = st.text_input("Enter Company Name or Ticker Symbol:", "Apple")
 
 # --- MASTER ANALYSIS BLOCK ---
 if st.button("Run Master Multi-Week Analysis"):
     try: 
         with st.status("Initializing ProQuant Cascade Engine...", expanded=True) as status:
+            st.write("🔍 Resolving company identity to exact index ticker...")
+            ticker = resolve_company_name(user_search_input)
+            st.write(f"🎯 Target confirmed: **{ticker}**")
+            
             st.write("📡 Fetching historical timeframe data...")
             stock = yf.Ticker(ticker)
             data = stock.history(period="1y")      
@@ -123,7 +155,7 @@ if st.button("Run Master Multi-Week Analysis"):
             
             if data.empty:
                 status.update(label="Data Error", state="error", expanded=True)
-                st.error("No data found. Please check the ticker symbol.")
+                st.error(f"Could not identify or pull market data for '{user_search_input}' (Resolved as: {ticker}). Please try typing a more specific name.")
             else:
                 st.write("🧠 Training Cascade Models (Weeks 1, 2, and 3)...")
                 features = ['Open', 'High', 'Low', 'Close', 'Volume']
@@ -173,14 +205,14 @@ if st.button("Run Master Multi-Week Analysis"):
                                             if item.get('label') == 'positive': bullish_score += item.get('score', 0)
                                             elif item.get('label') == 'negative': bearish_score += item.get('score', 0)
                             else:
-                                hf_token = None  # Fallback
+                                hf_token = None  
                         if not hf_token:
                             for text in news_texts:
                                 analysis = TextBlob(text)
                                 if analysis.sentiment.polarity > 0.1: bullish_score += analysis.sentiment.polarity
                                 elif analysis.sentiment.polarity < -0.1: bearish_score += abs(analysis.sentiment.polarity)
                 
-                status.update(label="Cascaded Analysis Complete!", state="complete", expanded=False)
+                status.update(label=f"Analysis Complete for {ticker}!", state="complete", expanded=False)
 
         if not data.empty:
             tab1, tab2 = st.tabs(["🏦 Multi-Week Forecast Path", "⚡ Day Trading Engine"])
@@ -188,7 +220,6 @@ if st.button("Run Master Multi-Week Analysis"):
             with tab1:
                 st.markdown(f"### 📊 AI Trajectory Outlook: {ticker}")
                 
-                # Display 4 clear metrics across the top
                 m_col1, m_col2, m_col3, m_col4 = st.columns(4)
                 m_col1.metric(label="Current Price", value=f"${current_price:.2f}")
                 m_col2.metric(label="Week 1 Target", value=f"${forecast_w1:.2f}", delta=f"{forecast_w1 - current_price:+.2f}")
@@ -198,11 +229,9 @@ if st.button("Run Master Multi-Week Analysis"):
                 st.markdown("---")
                 st.markdown(f"#### Price History & 3-Week AI Forecast Trajectory")
                 
-                # Technical Overlays
                 data['SMA_20'] = data['Close'].rolling(window=20).mean()
                 data['SMA_50'] = data['Close'].rolling(window=50).mean()
                 
-                # Build statistical variance cones for all three weeks
                 hist_std = data['Close'].pct_change().std()
                 unc_w1 = current_price * hist_std * (7 ** 0.5)
                 unc_w2 = current_price * hist_std * (14 ** 0.5)
@@ -218,7 +247,6 @@ if st.button("Run Master Multi-Week Analysis"):
                 fig_daily.add_trace(go.Scatter(x=recent_data.index, y=recent_data['SMA_20'], name='20-Day SMA', line=dict(color='#29B6F6', width=1.5)))
                 fig_daily.add_trace(go.Scatter(x=recent_data.index, y=recent_data['SMA_50'], name='50-Day SMA', line=dict(color='#FFA726', width=1.5)))
                 
-                # Future timeline construction
                 last_date = recent_data.index[-1]
                 date_w1 = last_date + timedelta(days=7)
                 date_w2 = last_date + timedelta(days=14)
@@ -227,7 +255,6 @@ if st.button("Run Master Multi-Week Analysis"):
                 timeline = [last_date, date_w1, date_w2, date_w3]
                 path_values = [current_price, forecast_w1, forecast_w2, forecast_w3]
                 
-                # Render continuous cascading Confidence Tunnel
                 fig_daily.add_trace(go.Scatter(
                     x=timeline, 
                     y=[current_price, forecast_w1 + unc_w1, forecast_w2 + unc_w2, forecast_w3 + unc_w3],
@@ -239,7 +266,6 @@ if st.button("Run Master Multi-Week Analysis"):
                     mode='lines', line=dict(width=0), fill='tonexty', fillcolor='rgba(0, 230, 118, 0.04)', name='Variance Tunnel'
                 ))
                 
-                # Render the continuous AI path line
                 fig_daily.add_trace(go.Scatter(
                     x=timeline, y=path_values,
                     mode='lines+markers', name='AI Forecast Path',
@@ -250,7 +276,6 @@ if st.button("Run Master Multi-Week Analysis"):
                 fig_daily.update_layout(xaxis_rangeslider_visible=False, height=450, margin=dict(l=10, r=10, t=10, b=10))
                 st.plotly_chart(fig_daily, use_container_width=True)
                 
-                # Detailed Breakdown Matrix
                 st.write("**Cascade Matrix Breakdown**")
                 matrix_df = pd.DataFrame({
                     "Target Horizon": ["Week 1 Target (7 Days)", "Week 2 Target (14 Days)", "Week 3 Target (21 Days)"],
@@ -264,7 +289,7 @@ if st.button("Run Master Multi-Week Analysis"):
                 net_move = forecast_w3 - current_price
                 if net_move >= 0:
                     st.success("🤖 Mathematical Model Cascade: NET BULLISH OUTLOOK")
-                    st.write(f"**Specifics:** Three distinct Random Forest setups calculated future intervals from a base price of **\${current_price:.2f}**. The math displays sequential shifts leading to a cumulative target of **\${forecast_w3:.2f}** over the next 3 weeks.")
+                    st.write(f"**Specifics:** Three distinct Random Forest setups calculated future intervals from a base price of **\Silicon Value \${current_price:.2f}**. The math displays sequential shifts leading to a cumulative target of **\${forecast_w3:.2f}** over the next 3 weeks.")
                 else:
                     st.error("🤖 Mathematical Model Cascade: NET BEARISH OUTLOOK")
                     st.write(f"**Specifics:** Three distinct Random Forest setups calculated future intervals from a base price of **\${current_price:.2f}**. The math displays sequential degradation leading to a cumulative target of **\${forecast_w3:.2f}** over the next 3 weeks.")
