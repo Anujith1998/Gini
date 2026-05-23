@@ -6,6 +6,7 @@ from textblob import TextBlob
 import requests
 import plotly.graph_objects as go
 from datetime import timedelta
+import xml.etree.ElementTree as ET
 
 # --- App Configuration ---
 st.set_page_config(page_title="ProQuant AI", layout="centered", page_icon="📈")
@@ -56,7 +57,6 @@ def resolve_company_name(input_query):
     """Translates regular company names into official trading tickers via Yahoo Finance backend."""
     cleaned_query = input_query.strip()
     
-    # Quick Pass: If it's already a short string and fully uppercase alphabetic, keep it as is
     if len(cleaned_query) <= 5 and cleaned_query.isalpha() and cleaned_query.isupper():
         return cleaned_query
         
@@ -70,13 +70,40 @@ def resolve_company_name(input_query):
         response = requests.get(url, params=params, headers=headers, timeout=5)
         response_data = response.json()
         if response_data.get('quotes') and len(response_data['quotes']) > 0:
-            # Safely grab the first high-confidence matching ticker symbol found
             resolved_ticker = response_data['quotes'][0]['symbol']
             return resolved_ticker.upper()
     except Exception:
         pass
         
-    return cleaned_query.upper() # Fallback to original input in uppercase if network lookup hiccups
+    return cleaned_query.upper()
+
+# --- RESILIENT NEWS HARVESTER ---
+def get_resilient_news(stock_obj, ticker_str):
+    """Gathers news headlines via yfinance with an automatic hot-swap to raw RSS parsing if Yahoo limits the primary endpoint."""
+    news_data = []
+    
+    # Track 1: Try standard library scrape
+    try:
+        news_data = stock_obj.news
+    except Exception:
+        pass
+        
+    # Track 2: Hot-swap to unblockable backup RSS Feed if standard method returns blank
+    if not news_data:
+        try:
+            rss_url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker_str}"
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            response = requests.get(rss_url, headers=headers, timeout=5)
+            if response.status_code == 200:
+                root = ET.fromstring(response.content)
+                for item in root.findall('.//item'):
+                    title_elem = item.find('title')
+                    if title_elem is not None and title_elem.text:
+                        news_data.append({"title": title_elem.text})
+        except Exception:
+            pass
+            
+    return news_data if news_data else []
 
 # --- SENTIMENT API FUNCTION ---
 def query_finbert_api(text_list, token):
@@ -137,7 +164,6 @@ else:
 st.markdown("---")
 st.markdown("### 🔍 Run Deep AI Multi-Week Analysis")
 
-# User types standard words here instead of codes!
 user_search_input = st.text_input("Enter Company Name or Ticker Symbol:", "Apple")
 
 # --- MASTER ANALYSIS BLOCK ---
@@ -187,7 +213,7 @@ if st.button("Run Master Multi-Week Analysis"):
                 forecast_w3 = m3.predict(latest_data)[0]
                 
                 st.write("📰 Scanning live market sentiment...")
-                news = stock.news
+                news = get_resilient_news(stock, ticker)
                 bullish_score, bearish_score, num_headlines = 0, 0, 0
                 engine_used = "TextBlob (Basic)"
                 
@@ -289,36 +315,13 @@ if st.button("Run Master Multi-Week Analysis"):
                 net_move = forecast_w3 - current_price
                 if net_move >= 0:
                     st.success("🤖 Mathematical Model Cascade: NET BULLISH OUTLOOK")
-                    st.write(f"**Specifics:** Three distinct Random Forest setups calculated future intervals from a base price of **\Silicon Value \${current_price:.2f}**. The math displays sequential shifts leading to a cumulative target of **\${forecast_w3:.2f}** over the next 3 weeks.")
+                    st.write(f"**Specifics:** Three distinct Random Forest setups calculated future intervals from a base price of **\${current_price:.2f}**. The math displays sequential shifts leading to a cumulative target of **\${forecast_w3:.2f}** over the next 3 weeks.")
                 else:
                     st.error("🤖 Mathematical Model Cascade: NET BEARISH OUTLOOK")
                     st.write(f"**Specifics:** Three distinct Random Forest setups calculated future intervals from a base price of **\${current_price:.2f}**. The math displays sequential degradation leading to a cumulative target of **\${forecast_w3:.2f}** over the next 3 weeks.")
                     
                 if num_headlines > 0:
                     if bullish_score > bearish_score:
-                        st.success(f"📰 Market Psychology ({engine_used}): BULLISH")
+                        st.success(f"📰 Market Psychology ({engine_used}): BULLISH ({num_headlines} Headlines Scanned)")
                     elif bearish_score > bullish_score:
-                        st.error(f"📰 Market Psychology ({engine_used}): BEARISH")
-                    else:
-                        st.info(f"⚖️ Market Psychology ({engine_used}): NEUTRAL")
-
-            with tab2:
-                st.markdown(f"### ⚡ Intraday Momentum: {ticker}")
-                if not intraday.empty:
-                    intra_current = intraday['Close'].iloc[-1]
-                    intra_high = intraday['High'].max()
-                    intra_low = intraday['Low'].min()
-                    
-                    c1, c2, c3 = st.columns(3)
-                    c1.metric(label="Live Price", value=f"${intra_current:.2f}")
-                    c2.metric(label="Session High", value=f"${intra_high:.2f}")
-                    c3.metric(label="Session Low", value=f"${intra_low:.2f}")
-                    
-                    total_range = (intra_high - intra_low) if (intra_high - intra_low) != 0 else 1
-                    position_pct = int(((intra_current - intra_low) / total_range) * 100)
-                    st.progress(max(0, min(100, position_pct)) / 100)
-                    st.caption(f"Price is sitting at {position_pct}% of today's total bracket.")
-
-    except Exception as e:
-        st.error(f"System Matrix Error: {e}")
-        
+                        st.error(f"📰 Market Psychology
