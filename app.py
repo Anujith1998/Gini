@@ -39,8 +39,7 @@ alert_threshold = st.sidebar.number_input(
     min_value=1.0, 
     max_value=50.0, 
     value=4.0, 
-    step=0.5,
-    help="Triggers an on-screen popup notification if a stock exceeds this daily change."
+    step=0.5
 )
 
 st.sidebar.markdown("---")
@@ -49,8 +48,7 @@ max_price_filter = st.sidebar.slider(
     min_value=10, 
     max_value=1000, 
     value=1000, 
-    step=10,
-    help="Slide left to only show cheaper stocks in your upfront watchlist."
+    step=10
 )
 
 # --- API FUNCTION ---
@@ -68,94 +66,57 @@ def query_finbert_api(text_list, token):
 def scan_market_leaders_fast(watchlist):
     scanned_data = []
     query_list = list(watchlist)
-    
-    if not query_list:
-        return pd.DataFrame()
-        
+    if not query_list: return pd.DataFrame()
     try:
         df = yf.download(query_list, period="5d", progress=False) 
-        if df.empty:
-            return pd.DataFrame()
-
+        if df.empty: return pd.DataFrame()
         for t in query_list:
             try:
                 if isinstance(df.columns, pd.MultiIndex):
-                    if 'Close' in df.columns.get_level_values(0):
-                        close_df = df['Close']
-                        if t in close_df.columns:
-                            close_series = close_df[t].dropna()
-                        else:
-                            continue
-                    else:
-                        continue
+                    col_ref = df['Close'][t] if t in df['Close'].columns else None
                 else:
-                    if 'Close' in df.columns:
-                        close_series = df['Close'].dropna()
-                    else:
-                        continue
-                        
-                if len(close_series) >= 2:
-                    close_today = float(close_series.iloc[-1])
-                    close_prev = float(close_series.iloc[-2])
-                    pct_change = ((close_today - close_prev) / close_prev) * 100
-                    scanned_data.append({"ticker": t, "price": close_today, "change": pct_change})
-            except Exception:
-                continue
-    except Exception:
-        pass
-        
+                    col_ref = df['Close'] if 'Close' in df.columns else None
+                
+                if col_ref is not None:
+                    close_series = col_ref.dropna()
+                    if len(close_series) >= 2:
+                        close_today = float(close_series.iloc[-1])
+                        close_prev = float(close_series.iloc[-2])
+                        pct_change = ((close_today - close_prev) / close_prev) * 100
+                        scanned_data.append({"ticker": t, "price": close_today, "change": pct_change})
+            except: continue
+    except: pass
     return pd.DataFrame(scanned_data)
 
 # --- UI Render: Upfront Scanner ---
 st.markdown("### 🔥 Live Momentum Watchlist")
-
 if not parsed_watchlist:
     st.warning("Please enter at least one ticker in the sidebar.")
 else:
     with st.spinner("Scanning your custom watchlist..."):
         scanner_df = scan_market_leaders_fast(watchlist_tuple)
-
     if not scanner_df.empty:
         filtered_df = scanner_df[scanner_df['price'] <= max_price_filter].sort_values(by="change", ascending=False)
-        
         for _, row in filtered_df.iterrows():
             if abs(row['change']) >= alert_threshold:
-                if row['change'] > 0:
-                    st.toast(f"🚀 SURGE ALERT: {row['ticker']} is UP {row['change']:+.2f}% today!", icon="🚀")
-                else:
-                    st.toast(f"🩸 DUMP ALERT: {row['ticker']} is DOWN {row['change']:+.2f}% today!", icon="🚨")
+                st.toast(f"{row['ticker']} moved {row['change']:+.2f}%", icon="🚀" if row['change'] > 0 else "🚨")
         
-        if not filtered_df.empty:
-            display_count = min(4, len(filtered_df))
+        display_count = min(4, len(filtered_df))
+        if display_count > 0:
             cols = st.columns(display_count)
             for i, row in enumerate(filtered_df.head(display_count).itertuples()):
                 cols[i].metric(label=row.ticker, value=f"${row.price:.2f}", delta=f"{row.change:+.2f}%")
-        else:
-            st.warning(f"⚠️ No watchlist stocks found under ${max_price_filter}.")
-    else:
-        st.info("💡 Live feed temporarily unavailable or invalid tickers. Enter a ticker directly below to begin.")
 
 st.markdown("---")
-st.markdown("### 🔍 Run Deep AI Analysis")
+st.markdown("### 🔍 Run Deep AI Multi-Week Analysis")
 
-input_col1, input_col2 = st.columns([2, 1])
-with input_col1:
-    ticker = st.text_input("Enter Ticker Symbol to analyze:", "AAPL").upper()
-with input_col2:
-    horizon_choice = st.selectbox("AI Forecast Horizon:", ["1 Week (5 Days)", "2 Weeks (10 Days)"])
-
-if "1 Week" in horizon_choice:
-    shift_days = 5
-    calendar_days = 7
-else:
-    shift_days = 10
-    calendar_days = 14
+ticker = st.text_input("Enter Ticker Symbol to analyze:", "AAPL").upper()
 
 # --- MASTER ANALYSIS BLOCK ---
-if st.button("Run Master Analysis"):
+if st.button("Run Master Multi-Week Analysis"):
     try: 
-        with st.status("Initializing ProQuant AI Engine...", expanded=True) as status:
-            st.write("📡 Fetching multi-timeframe market data...")
+        with st.status("Initializing ProQuant Cascade Engine...", expanded=True) as status:
+            st.write("📡 Fetching historical timeframe data...")
             stock = yf.Ticker(ticker)
             data = stock.history(period="1y")      
             intraday = stock.history(period="5d", interval="5m")  
@@ -164,27 +125,39 @@ if st.button("Run Master Analysis"):
                 status.update(label="Data Error", state="error", expanded=True)
                 st.error("No data found. Please check the ticker symbol.")
             else:
-                st.write(f"🧠 Running predictive mathematical model for {horizon_choice}...")
-                df = data.copy()
-                df['Target'] = df['Close'].shift(-shift_days)
-                df.dropna(inplace=True)
-                
-                X = df[['Open', 'High', 'Low', 'Close', 'Volume']]
-                y = df['Target']
-                
-                model = RandomForestRegressor(n_estimators=100, random_state=42)
-                model.fit(X, y)
-                
-                latest_data = data[['Open', 'High', 'Low', 'Close', 'Volume']].iloc[-1:]
-                forecast = model.predict(latest_data)[0]
+                st.write("🧠 Training Cascade Models (Weeks 1, 2, and 3)...")
+                features = ['Open', 'High', 'Low', 'Close', 'Volume']
+                latest_data = data[features].iloc[-1:]
                 current_price = data['Close'].iloc[-1]
                 
-                st.write("📰 Scanning live market sentiment & news...")
+                # Model 1: Week 1 (5 Trading Days)
+                df_w1 = data.copy()
+                df_w1['Target'] = df_w1['Close'].shift(-5)
+                df_w1.dropna(inplace=True)
+                m1 = RandomForestRegressor(n_estimators=100, random_state=42)
+                m1.fit(df_w1[features], df_w1['Target'])
+                forecast_w1 = m1.predict(latest_data)[0]
+                
+                # Model 2: Week 2 (10 Trading Days)
+                df_w2 = data.copy()
+                df_w2['Target'] = df_w2['Close'].shift(-10)
+                df_w2.dropna(inplace=True)
+                m2 = RandomForestRegressor(n_estimators=100, random_state=42)
+                m2.fit(df_w2[features], df_w2['Target'])
+                forecast_w2 = m2.predict(latest_data)[0]
+                
+                # Model 3: Week 3 (15 Trading Days)
+                df_w3 = data.copy()
+                df_w3['Target'] = df_w3['Close'].shift(-15)
+                df_w3.dropna(inplace=True)
+                m3 = RandomForestRegressor(n_estimators=100, random_state=42)
+                m3.fit(df_w3[features], df_w3['Target'])
+                forecast_w3 = m3.predict(latest_data)[0]
+                
+                st.write("📰 Scanning live market sentiment...")
                 news = stock.news
-                bullish_score = 0
-                bearish_score = 0
+                bullish_score, bearish_score, num_headlines = 0, 0, 0
                 engine_used = "TextBlob (Basic)"
-                num_headlines = 0
                 
                 if news:
                     news_texts = [item.get('title', '') for item in news[:5] if 'title' in item] 
@@ -197,185 +170,130 @@ if st.button("Run Master Analysis"):
                                 for res_list in api_result:
                                     if isinstance(res_list, list):
                                         for item in res_list:
-                                            if item.get('label') == 'positive':
-                                                bullish_score += item.get('score', 0)
-                                            elif item.get('label') == 'negative':
-                                                bearish_score += item.get('score', 0)
+                                            if item.get('label') == 'positive': bullish_score += item.get('score', 0)
+                                            elif item.get('label') == 'negative': bearish_score += item.get('score', 0)
                             else:
-                                engine_used = "TextBlob (API Fallback)"
-                                for text in news_texts:
-                                    analysis = TextBlob(text)
-                                    if analysis.sentiment.polarity > 0.1:
-                                        bullish_score += analysis.sentiment.polarity
-                                    elif analysis.sentiment.polarity < -0.1:
-                                        bearish_score += abs(analysis.sentiment.polarity)
-                        else:
+                                hf_token = None  # Fallback
+                        if not hf_token:
                             for text in news_texts:
                                 analysis = TextBlob(text)
-                                if analysis.sentiment.polarity > 0.1:
-                                    bullish_score += analysis.sentiment.polarity
-                                elif analysis.sentiment.polarity < -0.1:
-                                    bearish_score += abs(analysis.sentiment.polarity)
+                                if analysis.sentiment.polarity > 0.1: bullish_score += analysis.sentiment.polarity
+                                elif analysis.sentiment.polarity < -0.1: bearish_score += abs(analysis.sentiment.polarity)
                 
-                status.update(label="Analysis Complete!", state="complete", expanded=False)
+                status.update(label="Cascaded Analysis Complete!", state="complete", expanded=False)
 
         if not data.empty:
-            tab1, tab2 = st.tabs(["🏦 Swing & AI Forecast", "⚡ Day Trading Engine"])
+            tab1, tab2 = st.tabs(["🏦 Multi-Week Forecast Path", "⚡ Day Trading Engine"])
             
             with tab1:
-                st.markdown(f"### 📊 AI Forecast Outlook: {ticker}")
-                col1, col2 = st.columns(2)
-                col1.metric(label="Current Price", value=f"${current_price:.2f}")
+                st.markdown(f"### 📊 AI Trajectory Outlook: {ticker}")
                 
-                forecast_diff = forecast - current_price
-                
-                # FIXED: Removing the '$' inside the delta fixes the green up-arrow bug for negative numbers
-                col2.metric(label=f"AI Target ({horizon_choice})", value=f"${forecast:.2f}", delta=f"{forecast_diff:.2f}")
+                # Display 4 clear metrics across the top
+                m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+                m_col1.metric(label="Current Price", value=f"${current_price:.2f}")
+                m_col2.metric(label="Week 1 Target", value=f"${forecast_w1:.2f}", delta=f"{forecast_w1 - current_price:+.2f}")
+                m_col3.metric(label="Week 2 Target", value=f"${forecast_w2:.2f}", delta=f"{forecast_w2 - forecast_w1:+.2f}")
+                m_col4.metric(label="Week 3 Target", value=f"${forecast_w3:.2f}", delta=f"{forecast_w3 - forecast_w2:+.2f}")
 
                 st.markdown("---")
-                st.markdown("#### 🛡️ Risk Management Calculator")
-                r1, r2, r3 = st.columns(3)
+                st.markdown(f"#### Price History & 3-Week AI Forecast Trajectory")
                 
-                entry_input = r1.number_input("Entry Price ($)", value=float(current_price))
-                sl_input = r2.number_input("Stop Loss ($)", value=float(current_price * 0.95))
-                tp_input = r3.number_input("Target Price ($)", value=float(forecast))
-
-                risk = entry_input - sl_input
-                reward = tp_input - entry_input
-                
-                if risk > 0:
-                    ratio = reward / risk
-                    st.metric("Risk/Reward Ratio", f"{ratio:.2f} : 1")
-                    if ratio >= 2.0:
-                        st.success(f"✅ **GOOD TRADE:** Potential reward is {ratio:.1f}x your risk.")
-                    elif ratio > 1.0:
-                        st.warning(f"⚠️ **CAUTION:** Reward is less than 2x your risk ({ratio:.1f}x).")
-                    else:
-                        st.error("❌ **AVOID:** You are risking more than you stand to gain.")
-                elif risk == 0:
-                    st.error("Stop Loss cannot equal your Entry Price.")
-                else:
-                    st.error("Check your numbers: Stop Loss must be lower than Entry for a standard Long trade.")
-                
-                st.markdown(f"#### Price History, AI Forecast Path & Uncertainty")
-                
-                # Calculate Moving Averages
+                # Technical Overlays
                 data['SMA_20'] = data['Close'].rolling(window=20).mean()
                 data['SMA_50'] = data['Close'].rolling(window=50).mean()
                 
-                # Volatility/Uncertainty Data for the Forecast Shaded Area
+                # Build statistical variance cones for all three weeks
                 hist_std = data['Close'].pct_change().std()
-                uncertainty = current_price * hist_std * (calendar_days ** 0.5)
+                unc_w1 = current_price * hist_std * (7 ** 0.5)
+                unc_w2 = current_price * hist_std * (14 ** 0.5)
+                unc_w3 = current_price * hist_std * (21 ** 0.5)
                 
                 recent_data = data.iloc[-90:]
                 
                 fig_daily = go.Figure(data=[go.Candlestick(
                     x=recent_data.index, open=recent_data['Open'], high=recent_data['High'],
-                    low=recent_data['Low'], close=recent_data['Close'], name='Historical Price'
+                    low=recent_data['Low'], close=recent_data['Close'], name='Historical'
                 )])
                 
-                # Plot MAs
                 fig_daily.add_trace(go.Scatter(x=recent_data.index, y=recent_data['SMA_20'], name='20-Day SMA', line=dict(color='#29B6F6', width=1.5)))
                 fig_daily.add_trace(go.Scatter(x=recent_data.index, y=recent_data['SMA_50'], name='50-Day SMA', line=dict(color='#FFA726', width=1.5)))
                 
-                # Plot Shaded Uncertainty/Confidence Zone
+                # Future timeline construction
                 last_date = recent_data.index[-1]
-                future_date = last_date + timedelta(days=calendar_days)
+                date_w1 = last_date + timedelta(days=7)
+                date_w2 = last_date + timedelta(days=14)
+                date_w3 = last_date + timedelta(days=21)
                 
+                timeline = [last_date, date_w1, date_w2, date_w3]
+                path_values = [current_price, forecast_w1, forecast_w2, forecast_w3]
+                
+                # Render continuous cascading Confidence Tunnel
                 fig_daily.add_trace(go.Scatter(
-                    x=[last_date, future_date], y=[forecast + uncertainty, forecast + uncertainty],
+                    x=timeline, 
+                    y=[current_price, forecast_w1 + unc_w1, forecast_w2 + unc_w2, forecast_w3 + unc_w3],
                     mode='lines', line=dict(width=0), showlegend=False
                 ))
                 fig_daily.add_trace(go.Scatter(
-                    x=[last_date, future_date], y=[forecast - uncertainty, forecast - uncertainty],
-                    mode='lines', line=dict(width=0), fill='tonexty', fillcolor='rgba(255, 255, 255, 0.1)', name='Confidence Zone'
+                    x=timeline, 
+                    y=[current_price, forecast_w1 - unc_w1, forecast_w2 - unc_w2, forecast_w3 - unc_w3],
+                    mode='lines', line=dict(width=0), fill='tonexty', fillcolor='rgba(0, 230, 118, 0.04)', name='Variance Tunnel'
                 ))
                 
-                # Plot Forecast Line
-                line_color = '#00E676' if forecast_diff >= 0 else '#FF1744'
+                # Render the continuous AI path line
                 fig_daily.add_trace(go.Scatter(
-                    x=[last_date, future_date], y=[current_price, forecast],
+                    x=timeline, y=path_values,
                     mode='lines+markers', name='AI Forecast Path',
-                    line=dict(color=line_color, width=3, dash='dash')
+                    line=dict(color='#00E676' if forecast_w3 >= current_price else '#FF1744', width=3, dash='dash'),
+                    marker=dict(size=8, symbol='circle')
                 ))
                 
-                # Fixed: Removed the range slider so it looks clean on mobile like before
                 fig_daily.update_layout(xaxis_rangeslider_visible=False, height=450, margin=dict(l=10, r=10, t=10, b=10))
                 st.plotly_chart(fig_daily, use_container_width=True)
                 
-                # Data Summary Table
-                summary_data = {
-                    "Metric": ["Current Price", "Forecast Target", "Potential Move", "Volatility (Confidence Range)"],
-                    "Value": [f"${current_price:.2f}", f"${forecast:.2f}", f"{((forecast/current_price)-1)*100:+.2f}%", f"±${uncertainty:.2f}"]
-                }
-                st.table(pd.DataFrame(summary_data))
+                # Detailed Breakdown Matrix
+                st.write("**Cascade Matrix Breakdown**")
+                matrix_df = pd.DataFrame({
+                    "Target Horizon": ["Week 1 Target (7 Days)", "Week 2 Target (14 Days)", "Week 3 Target (21 Days)"],
+                    "Projected Price": [f"${forecast_w1:.2f}", f"${forecast_w2:.2f}", f"${forecast_w3:.2f}"],
+                    "Net Change from Current": [f"{((forecast_w1/current_price)-1)*100:+.2f}%", f"{((forecast_w2/current_price)-1)*100:+.2f}%", f"{((forecast_w3/current_price)-1)*100:+.2f}%"],
+                    "Statistical Bound": [f"±${unc_w1:.2f}", f"±${unc_w2:.2f}", f"±${unc_w3:.2f}"]
+                })
+                st.table(matrix_df)
                 
-                # RESTORED: Full AI Descriptions & Diagnostics Block
                 st.markdown("#### AI Diagnostics & Reasoning")
-                
-                if forecast > current_price:
-                    st.success("🤖 Mathematical Model: BULLISH")
-                    st.write(f"**Specifics:** A Random Forest algorithm analyzed 1 year of daily technical data (Open, High, Low, Close, and Volume). Based on current momentum patterns, it projects the current price of **\${current_price:.2f}** will rise to **\${forecast:.2f}**. This is a mathematically predicted gain of **\${forecast_diff:.2f}** over the next {horizon_choice}.")
+                net_move = forecast_w3 - current_price
+                if net_move >= 0:
+                    st.success("🤖 Mathematical Model Cascade: NET BULLISH OUTLOOK")
+                    st.write(f"**Specifics:** Three distinct Random Forest setups calculated future intervals from a base price of **\${current_price:.2f}**. The math displays sequential shifts leading to a cumulative target of **\${forecast_w3:.2f}** over the next 3 weeks.")
                 else:
-                    st.error("🤖 Mathematical Model: BEARISH")
-                    st.write(f"**Specifics:** A Random Forest algorithm analyzed 1 year of daily technical data (Open, High, Low, Close, and Volume). Based on current weakness patterns, it projects the current price of **\${current_price:.2f}** will fall to **\${forecast:.2f}**. This is a mathematically predicted drop of **\${abs(forecast_diff):.2f}** over the next {horizon_choice}.")
+                    st.error("🤖 Mathematical Model Cascade: NET BEARISH OUTLOOK")
+                    st.write(f"**Specifics:** Three distinct Random Forest setups calculated future intervals from a base price of **\${current_price:.2f}**. The math displays sequential degradation leading to a cumulative target of **\${forecast_w3:.2f}** over the next 3 weeks.")
                     
                 if num_headlines > 0:
                     if bullish_score > bearish_score:
-                        st.success("📰 Market Psychology: BULLISH")
-                        st.write(f"**Specifics:** The **{engine_used}** Natural Language Processing model scanned the **{num_headlines} most recent news headlines** for {ticker}. It calculated a positive sentiment score of **{bullish_score:.2f}** compared to a negative score of **{bearish_score:.2f}**, indicating strong media optimism.")
+                        st.success(f"📰 Market Psychology ({engine_used}): BULLISH")
                     elif bearish_score > bullish_score:
-                        st.error("📰 Market Psychology: BEARISH")
-                        st.write(f"**Specifics:** The **{engine_used}** Natural Language Processing model scanned the **{num_headlines} most recent news headlines** for {ticker}. It calculated a negative sentiment score of **{bearish_score:.2f}** compared to a positive score of **{bullish_score:.2f}**, indicating fear or media pessimism.")
+                        st.error(f"📰 Market Psychology ({engine_used}): BEARISH")
                     else:
-                        st.info("⚖️ Market Psychology: NEUTRAL")
-                        st.write(f"**Specifics:** The **{engine_used}** Natural Language Processing model scanned the **{num_headlines} most recent news headlines** for {ticker}. The positive score (**{bullish_score:.2f}**) and negative score (**{bearish_score:.2f}**) perfectly offset each other, or no strong sentiment keywords were detected.")
-                else:
-                    st.info("⚖️ Market Psychology: UNKNOWN")
-                    st.write("**Specifics:** No recent news headlines were found for this ticker to analyze.")
+                        st.info(f"⚖️ Market Psychology ({engine_used}): NEUTRAL")
 
             with tab2:
                 st.markdown(f"### ⚡ Intraday Momentum: {ticker}")
-                
-                if intraday.empty:
-                    st.warning("Intraday data unavailable right now.")
-                else:
+                if not intraday.empty:
                     intra_current = intraday['Close'].iloc[-1]
-                    intra_high = intraday['High'].iloc[-len(intraday.loc[intraday.index.date == intraday.index.date[-1]]):].max()
-                    intra_low = intraday['Low'].iloc[-len(intraday.loc[intraday.index.date == intraday.index.date[-1]]):].min()
-                    intra_volume = intraday['Volume'].iloc[-1]
-                    avg_volume = intraday['Volume'].mean()
+                    intra_high = intraday['High'].max()
+                    intra_low = intraday['Low'].min()
                     
                     c1, c2, c3 = st.columns(3)
                     c1.metric(label="Live Price", value=f"${intra_current:.2f}")
-                    c2.metric(label="Today's High", value=f"${intra_high:.2f}")
-                    c3.metric(label="Today's Low", value=f"${intra_low:.2f}")
+                    c2.metric(label="Session High", value=f"${intra_high:.2f}")
+                    c3.metric(label="Session Low", value=f"${intra_low:.2f}")
                     
-                    st.markdown("#### Today's Session Position")
                     total_range = (intra_high - intra_low) if (intra_high - intra_low) != 0 else 1
                     position_pct = int(((intra_current - intra_low) / total_range) * 100)
-                    position_pct = max(0, min(100, position_pct)) 
-                    
-                    st.progress(position_pct / 100)
-                    st.caption(f"Price is sitting at {position_pct}% of today's total high-low bracket.")
-                    
-                    st.markdown("#### 5-Minute Live Momentum Chart")
-                    fig_intra = go.Figure(data=[go.Candlestick(
-                        x=intraday.index, open=intraday['Open'], high=intraday['High'],
-                        low=intraday['Low'], close=intraday['Close'], name='5m Bars'
-                    )])
-                    fig_intra.update_layout(xaxis_rangeslider_visible=False, height=300, margin=dict(l=10,r=10,t=10,b=10))
-                    st.plotly_chart(fig_intra, use_container_width=True)
-                    
-                    st.markdown("#### Trading Activity Alert")
-                    if intra_volume > (avg_volume * 1.5):
-                        st.success(f"🔥 VOLUME SURGE: {intra_volume:,} shares traded.")
-                    elif intra_volume < (avg_volume * 0.5):
-                        st.error(f"💤 SLEEPY VOLUME: {intra_volume:,} shares.")
-                    else:
-                        st.info(f"⚖️ NORMAL VOLUME: {intra_volume:,} shares.")
+                    st.progress(max(0, min(100, position_pct)) / 100)
+                    st.caption(f"Price is sitting at {position_pct}% of today's total bracket.")
 
     except Exception as e:
-        st.error("An error occurred during analysis.")
-        st.error(f"System Log: {e}")
+        st.error(f"System Matrix Error: {e}")
         
