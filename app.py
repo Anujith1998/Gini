@@ -393,92 +393,49 @@ if st.button("Run Master Multi-Week Analysis"):
                     st.error(f"💀 **STRONG LIQUIDATE / SHORT** ({bull_votes} Bulls)")
 
                 st.markdown("---")
-                st.markdown("#### 📈 History & 3-Week Forward Consensus Trend")
+                st.markdown("#### 📈 90-Day Price History & AI Forward Price Path")
                 
-                # Backtesting the 6 Agents across the last 90 days
-                r_feats = recent[['Open', 'High', 'Low', 'Close', 'Volume']]
+                # Historical Close timeline setup
+                h_dates = recent.index
+                h_prices = recent['Close']
                 
-                h_v1 = m3.predict(r_feats) >= recent['Close']
-                h_v2 = recent['Close'] >= recent['SMA_20']
-                h_v3 = pd.Series([v3] * len(recent), index=recent.index)
-                h_v4 = recent['Close'] >= recent['SMA_50']
-                h_v5 = recent['Close'] >= recent['Open']
-                h_v6 = m1.predict(r_feats) >= recent['Close']
-                
-                # Sum the True votes (0 to 6 max)
-                score_hist = (
-                    h_v1.astype(int) + h_v2.astype(int) + 
-                    h_v3.astype(int) + h_v4.astype(int) + 
-                    h_v5.astype(int) + h_v6.astype(int)
-                )
-
-                # Future Forward Projection Logic for voting trend line
-                s_w1 = sum([
-                    forecast_w3 >= forecast_w1, forecast_w1 >= l_sma20, 
-                    v3, forecast_w1 >= l_sma50, forecast_w1 >= current_price, 
-                    forecast_w2 >= forecast_w1
-                ])
-                
-                s_w2 = sum([
-                    forecast_w3 >= forecast_w2, forecast_w2 >= l_sma20, 
-                    v3, forecast_w2 >= l_sma50, forecast_w2 >= forecast_w1, 
-                    forecast_w3 >= forecast_w2
-                ])
-                
-                s_w3 = sum([
-                    True, forecast_w3 >= l_sma20, v3, 
-                    forecast_w3 >= l_sma50, forecast_w3 >= forecast_w2, True
-                ])
-                
+                # Forward Projection Timeline (Dates and forecasted numerical dollar values)
                 f_dates = [
                     recent.index[-1], 
                     recent.index[-1] + timedelta(7), 
                     recent.index[-1] + timedelta(14), 
                     recent.index[-1] + timedelta(21)
                 ]
-                f_scores = [score_hist.iloc[-1], s_w1, s_w2, s_w3]
+                f_prices = [current_price, forecast_w1, forecast_w2, forecast_w3]
                 
-                # Render the Graph
+                # Render the Debate Room Price Chart
                 fig_c = go.Figure()
                 
-                # Historic Trace
+                # 1. Historical Data Line (Solid)
                 fig_c.add_trace(go.Scatter(
-                    x=recent.index, 
-                    y=score_hist, 
+                    x=h_dates, 
+                    y=h_prices, 
                     mode='lines', 
-                    name='Historic Consensus',
+                    name='Historical Close',
                     line=dict(color='#29B6F6', width=2.5)
                 ))
 
-                # Future Forecast Trace (Dashed)
-                fc_clr = '#00E676' if s_w3 >= s_w1 else '#FF1744'
+                # 2. Future Forecast Path Line (Dashed, Green/Red based on target)
+                fc_clr = '#00E676' if forecast_w3 >= current_price else '#FF1744'
                 fig_c.add_trace(go.Scatter(
                     x=f_dates, 
-                    y=f_scores, 
+                    y=f_prices, 
                     mode='lines+markers', 
-                    name='AI Forecast Path',
+                    name='Model Price Path',
                     line=dict(color=fc_clr, width=2.5, dash='dash')
                 ))
                 
-                # Shaded Background Zones
-                fig_c.add_hrect(
-                    y0=3.5, y1=6.5, 
-                    fillcolor="rgba(0,230,118,0.1)", 
-                    layer="below", line_width=0
-                )
-                fig_c.add_hrect(
-                    y0=-0.5, y1=2.5, 
-                    fillcolor="rgba(255,23,68,0.1)", 
-                    layer="below", line_width=0
-                )
-                
                 fig_c.update_layout(
                     yaxis=dict(
-                        range=[-0.5, 6.5], 
-                        tickvals=[0,1,2,3,4,5,6],
-                        title="Bull Votes (0-6)"
+                        title="Price ($)",
+                        autorange=True
                     ),
-                    height=250,
+                    height=300,
                     margin=dict(l=5, r=5, t=10, b=5),
                     xaxis_rangeslider_visible=False,
                     legend=dict(
