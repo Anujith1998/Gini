@@ -260,9 +260,9 @@ if st.button("Run Master Multi-Week Analysis"):
                 
                 mc1, mc2, mc3, mc4 = st.columns(4)
                 mc1.metric("Current", f"${current_price:.2f}")
-                mc2.metric("Week 1", f"${forecast_w1:.2f}", f"{forecast_w1 - current_price:+.2f}")
-                mc3.metric("Week 2", f"${forecast_w2:.2f}", f"{forecast_w2 - forecast_w1:+.2f}")
-                mc4.metric("Week 3", f"${forecast_w3:.2f}", f"{forecast_w3 - forecast_w2:+.2f}")
+                mc2.metric("Wk 1", f"${forecast_w1:.2f}", f"{forecast_w1-current_price:+.2f}")
+                mc3.metric("Wk 2", f"${forecast_w2:.2f}", f"{forecast_w2-forecast_w1:+.2f}")
+                mc4.metric("Wk 3", f"${forecast_w3:.2f}", f"{forecast_w3-forecast_w2:+.2f}")
 
                 st.markdown("---")
                 
@@ -393,7 +393,7 @@ if st.button("Run Master Multi-Week Analysis"):
                     st.error(f"💀 **STRONG LIQUIDATE / SHORT** ({bull_votes} Bulls)")
 
                 st.markdown("---")
-                st.markdown("#### 📈 90-Day Historic Consensus Trend")
+                st.markdown("#### 📈 History & 3-Week Forward Consensus")
                 
                 # Backtesting the 6 Agents across the last 90 days
                 r_feats = recent[['Open', 'High', 'Low', 'Close', 'Volume']]
@@ -405,21 +405,53 @@ if st.button("Run Master Multi-Week Analysis"):
                 h_v5 = recent['Close'] >= recent['Open']
                 h_v6 = m1.predict(r_feats) >= recent['Close']
                 
-                # Sum the True votes (0 to 6 max)
+                # Historic Score Sum
                 score_hist = (
                     h_v1.astype(int) + h_v2.astype(int) + 
                     h_v3.astype(int) + h_v4.astype(int) + 
                     h_v5.astype(int) + h_v6.astype(int)
                 )
                 
+                # Future Forward Projection Logic
+                s_w1 = sum([
+                    forecast_w3 >= forecast_w1, forecast_w1 >= l_sma20, 
+                    v3, forecast_w1 >= l_sma50, forecast_w1 >= current_price, 
+                    forecast_w2 >= forecast_w1
+                ])
+                
+                s_w2 = sum([
+                    forecast_w3 >= forecast_w2, forecast_w2 >= l_sma20, 
+                    v3, forecast_w2 >= l_sma50, forecast_w2 >= forecast_w1, 
+                    forecast_w3 >= forecast_w2
+                ])
+                
+                s_w3 = sum([
+                    True, forecast_w3 >= l_sma20, v3, 
+                    forecast_w3 >= l_sma50, forecast_w3 >= forecast_w2, True
+                ])
+                
+                f_dates = [
+                    recent.index[-1], recent.index[-1]+timedelta(7), 
+                    recent.index[-1]+timedelta(14), recent.index[-1]+timedelta(21)
+                ]
+                f_scores = [score_hist.iloc[-1], s_w1, s_w2, s_w3]
+                
                 # Render the Graph
                 fig_c = go.Figure()
+                
+                # Historic Trace
                 fig_c.add_trace(go.Scatter(
-                    x=recent.index, 
-                    y=score_hist, 
-                    mode='lines', 
-                    name='Consensus Score',
+                    x=recent.index, y=score_hist, 
+                    mode='lines', name='Historic Consensus',
                     line=dict(color='#29B6F6', width=2.5)
+                ))
+                
+                # Future Forecast Trace (Dashed)
+                fc_clr = '#00E676' if s_w3 >= s_w1 else '#FF1744'
+                fig_c.add_trace(go.Scatter(
+                    x=f_dates, y=f_scores, 
+                    mode='lines+markers', name='AI Forecast Path',
+                    line=dict(color=fc_clr, width=2.5, dash='dash')
                 ))
                 
                 # Shaded Background Zones
@@ -442,10 +474,13 @@ if st.button("Run Master Multi-Week Analysis"):
                     ),
                     height=250,
                     margin=dict(l=5, r=5, t=10, b=5),
-                    xaxis_rangeslider_visible=False
+                    xaxis_rangeslider_visible=False,
+                    legend=dict(
+                        orientation="h", yanchor="bottom", 
+                        y=1.02, xanchor="right", x=1
+                    )
                 )
                 st.plotly_chart(fig_c, use_container_width=True)
 
     except Exception as e:
-        st.error(f"Terminal Exception Error: {e}")
-        
+   
