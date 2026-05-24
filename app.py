@@ -36,11 +36,10 @@ wl_input = st.sidebar.text_input(
     value="AAPL, NVDA, TSLA, AMD, MSFT"
 )
 
-parsed_wl = [
-    t.strip().upper() 
-    for t in wl_input.split(",") 
-    if t.strip()
-]
+parsed_wl = []
+for t in wl_input.split(","):
+    if t.strip():
+        parsed_wl.append(t.strip().upper())
 watchlist_tuple = tuple(parsed_wl)
 
 st.sidebar.markdown("---")
@@ -152,17 +151,17 @@ else:
         
         for _, row in f_df.iterrows():
             if abs(row['change']) >= alert_threshold:
-                st.toast(f"{row['ticker']} shifted {row['change']:+.2f}%")
+                alert_msg = f"{row['ticker']} shifted {row['change']:+.2f}%"
+                st.toast(alert_msg)
         
         display_count = min(4, len(f_df))
         if display_count > 0:
             cols = st.columns(display_count)
             for i, row in enumerate(f_df.head(display_count).itertuples()):
-                cols[i].metric(
-                    label=row.ticker, 
-                    value=f"${row.price:.2f}", 
-                    delta=f"{row.change:+.2f}%"
-                )
+                lab = row.ticker
+                val = f"${row.price:.2f}"
+                delta = f"{row.change:+.2f}%"
+                cols[i].metric(label=lab, value=val, delta=delta)
 
 st.markdown("---")
 st.markdown("### 🔍 Run Deep AI Multi-Week Analysis")
@@ -188,12 +187,10 @@ if st.button("Run Master Multi-Week Analysis"):
                 latest_data = data[feats].iloc[-1:]
                 current_price = data['Close'].iloc[-1]
                 
-                # Pre-calculate data structures
                 data['SMA_20'] = data['Close'].rolling(window=20).mean()
                 data['SMA_50'] = data['Close'].rolling(window=50).mean()
                 recent = data.iloc[-90:]
                 
-                # Model 1: 5 Days
                 df_w1 = data.copy()
                 df_w1['Target'] = df_w1['Close'].shift(-5)
                 df_w1.dropna(inplace=True)
@@ -201,7 +198,6 @@ if st.button("Run Master Multi-Week Analysis"):
                 m1.fit(df_w1[feats], df_w1['Target'])
                 forecast_w1 = m1.predict(latest_data)[0]
                 
-                # Model 2: 10 Days
                 df_w2 = data.copy()
                 df_w2['Target'] = df_w2['Close'].shift(-10)
                 df_w2.dropna(inplace=True)
@@ -209,7 +205,6 @@ if st.button("Run Master Multi-Week Analysis"):
                 m2.fit(df_w2[feats], df_w2['Target'])
                 forecast_w2 = m2.predict(latest_data)[0]
                 
-                # Model 3: 15 Days
                 df_w3 = data.copy()
                 df_w3['Target'] = df_w3['Close'].shift(-15)
                 df_w3.dropna(inplace=True)
@@ -228,11 +223,286 @@ if st.button("Run Master Multi-Week Analysis"):
                     if texts:
                         if hf_token:
                             api_res = query_finbert_api(texts, hf_token)
-                            if api_res and isinstance(api_res, list) and "error" not in api_res:
+                            valid_res = (api_res and isinstance(api_res, list) and "error" not in api_res)
+                            if valid_res:
                                 engine = "FinBERT Engine"
                                 for r_list in api_res:
                                     if isinstance(r_list, list):
                                         for item in r_list:
                                             lbl = item.get('label')
-                                            scr = item.
-                                            
+                                            scr = item.get('score', 0)
+                                            if lbl == 'positive': bull_s += scr
+                                            elif lbl == 'negative': bear_s += scr
+                            else:
+                                hf_token = None  
+                        if not hf_token:
+                            for txt in texts:
+                                b_obj = TextBlob(txt)
+                                pol = b_obj.sentiment.polarity
+                                if pol > 0.1: bull_s += pol
+                                elif pol < -0.1: bear_s += abs(pol)
+                
+                status.update(label="Complete!", state="complete", expanded=False)
+
+        if not data.empty:
+            tab1, tab2, tab3 = st.tabs([
+                "🏦 Multi-Week Forecast", 
+                "⚡ Intraday Engine",
+                "👥 AI Debate Room"
+            ])
+            
+            with tab1:
+                st.markdown(f"### 📊 Forecast Path: {ticker}")
+                
+                mc1, mc2, mc3, mc4 = st.columns(4)
+                
+                mc1.metric("Current", f"${current_price:.2f}")
+                val1 = f"${forecast_w1:.2f}"
+                del1 = f"{forecast_w1-current_price:+.2f}"
+                mc2.metric("Wk 1", val1, del1)
+                
+                val2 = f"${forecast_w2:.2f}"
+                del2 = f"{forecast_w2-forecast_w1:+.2f}"
+                mc3.metric("Wk 2", val2, del2)
+                
+                val3 = f"${forecast_w3:.2f}"
+                del3 = f"{forecast_w3-forecast_w2:+.2f}"
+                mc4.metric("Wk 3", val3, del3)
+
+                st.markdown("---")
+                
+                h_std = data['Close'].pct_change().std()
+                u_w1 = current_price * h_std * (7 ** 0.5)
+                u_w2 = current_price * h_std * (14 ** 0.5)
+                u_w3 = current_price * h_std * (21 ** 0.5)
+                
+                fig = go.Figure()
+                
+                c_trace = go.Candlestick(
+                    x=recent.index, open=recent['Open'], 
+                    high=recent['High'], low=recent['Low'], 
+                    close=recent['Close'], name='Price'
+                )
+                fig.add_trace(c_trace)
+                
+                s20_trace = go.Scatter(
+                    x=recent.index, y=recent['SMA_20'], 
+                    name='20 SMA', line=dict(color='#29B6F6', width=1)
+                )
+                fig.add_trace(s20_trace)
+                
+                s50_trace = go.Scatter(
+                    x=recent.index, y=recent['SMA_50'], 
+                    name='50 SMA', line=dict(color='#FFA726', width=1)
+                )
+                fig.add_trace(s50_trace)
+                
+                l_date = recent.index[-1]
+                t_line = [
+                    l_date, 
+                    l_date+timedelta(7), 
+                    l_date+timedelta(14), 
+                    l_date+timedelta(21)
+                ]
+                p_vals = [current_price, forecast_w1, forecast_w2, forecast_w3]
+                
+                up_y = [
+                    current_price, 
+                    forecast_w1+u_w1, 
+                    forecast_w2+u_w2, 
+                    forecast_w3+u_w3
+                ]
+                up_trace = go.Scatter(
+                    x=t_line, y=up_y, mode='lines', 
+                    showlegend=False, line=dict(width=0)
+                )
+                fig.add_trace(up_trace)
+                
+                dn_y = [
+                    current_price, 
+                    forecast_w1-u_w1, 
+                    forecast_w2-u_w2, 
+                    forecast_w3-u_w3
+                ]
+                dn_trace = go.Scatter(
+                    x=t_line, y=dn_y, mode='lines', 
+                    fill='tonexty', fillcolor='rgba(0,230,118,0.03)', 
+                    name='Tunnel'
+                )
+                fig.add_trace(dn_trace)
+                
+                c_clr = '#00E676' if forecast_w3 >= current_price else '#FF1744'
+                path_trace = go.Scatter(
+                    x=t_line, y=p_vals, mode='lines+markers', 
+                    name='AI Path', line=dict(color=c_clr, width=2, dash='dash')
+                )
+                fig.add_trace(path_trace)
+                
+                fig.update_layout(
+                    xaxis_rangeslider_visible=False, 
+                    height=400, 
+                    margin=dict(l=5, r=5, t=5, b=5)
+                )
+                st.plotly_chart(fig, use_container_width=True)
+                
+                m1_pct = f"{((forecast_w1/current_price)-1)*100:+.2f}%"
+                m2_pct = f"{((forecast_w2/current_price)-1)*100:+.2f}%"
+                m3_pct = f"{((forecast_w3/current_price)-1)*100:+.2f}%"
+                
+                m_df = pd.DataFrame({
+                    "Horizon": ["Week 1", "Week 2", "Week 3"],
+                    "Target": [val1, val2, val3],
+                    "Move": [m1_pct, m2_pct, m3_pct]
+                })
+                st.table(m_df)
+                
+                st.markdown("#### AI Diagnostics & Analysis")
+                if forecast_w3 >= current_price:
+                    st.success("🤖 Cascade Status: NET BULLISH DETECTED")
+                else:
+                    st.error("🤖 Cascade Status: NET BEARISH DETECTED")
+                    
+                if num_hl > 0:
+                    if bull_s > bear_s:
+                        msg = f"📰 Sentiment Layer: BULLISH ({num_hl} Alerts)"
+                        st.success(msg)
+                    elif bear_s > bull_s:
+                        msg = f"📰 Sentiment Layer: BEARISH ({num_hl} Alerts)"
+                        st.error(msg)
+                    else:
+                        msg = f"📰 Sentiment Layer: NEUTRAL ({num_hl} Alerts)"
+                        st.info(msg)
+
+            with tab2:
+                st.markdown(f"### ⚡ Intraday Diagnostics: {ticker}")
+                if not intraday.empty:
+                    i_cur = intraday['Close'].iloc[-1]
+                    i_hi = intraday['High'].max()
+                    i_lo = intraday['Low'].min()
+                    
+                    cc1, cc2, cc3 = st.columns(3)
+                    cc1.metric("Live Execution", f"${i_cur:.2f}")
+                    cc2.metric("Session High", f"${i_hi:.2f}")
+                    cc3.metric("Session Low", f"${i_lo:.2f}")
+                    
+                    denom = (i_hi - i_lo) if (i_hi - i_lo) != 0 else 1
+                    pos = int(((i_cur - i_lo) / denom) * 100)
+                    clamped_pos = max(0, min(100, pos))
+                    st.progress(clamped_pos / 100)
+                    st.caption(f"Price is at {pos}% of today's bracket.")
+
+            with tab3:
+                st.markdown("### 🗳️ 6-Agent AI Consensus Scoreboard")
+                
+                l_sma20 = float(data['SMA_20'].iloc[-1])
+                l_sma50 = float(data['SMA_50'].iloc[-1])
+                l_open = float(data['Open'].iloc[-1])
+                
+                v1 = (forecast_w3 >= current_price)
+                v2 = (current_price >= l_sma20)
+                v3 = (bull_s >= bear_s) if num_hl > 0 else True
+                v4 = (current_price >= l_sma50)
+                v5 = (current_price >= l_open)
+                v6 = (forecast_w1 >= current_price)
+                
+                votes = [v1, v2, v3, v4, v5, v6]
+                bull_votes = votes.count(True)
+                bear_votes = votes.count(False)
+                
+                stances = ["🟢 BULL" if v else "🔴 BEAR" for v in votes]
+                
+                v_df = pd.DataFrame({
+                    "Algorithmic Voter Node": [
+                        "Agent 1: Cascade ML Matrix (3-Week)",
+                        "Agent 2: Short Trend Engine (20-Day SMA)",
+                        "Agent 3: Media Sentiment Array",
+                        "Agent 4: Macro Baseline (50-Day SMA)",
+                        "Agent 5: Intraday Opening Pivot",
+                        "Agent 6: Immediate Vector (1-Week Path)"
+                    ],
+                    "Stance": stances
+                })
+                st.table(v_df)
+                
+                st.markdown("#### ⚖️ Final Arbitration Verdict")
+                if bull_votes >= 5:
+                    msg = f"🎯 **STRONG BUY** ({bull_votes} Bulls)"
+                    st.success(msg)
+                elif bull_votes == 4:
+                    msg = f"⚖️ **TACTICAL ACCUMULATE** ({bull_votes} Bulls)"
+                    st.info(msg)
+                elif bull_votes == 3:
+                    msg = f"⚡ **EQUAL WEIGHT / HOLD** ({bull_votes} Bulls)"
+                    st.warning(msg)
+                elif bull_votes == 2:
+                    msg = f"🚨 **TACTICAL REDUCE / SHORT** ({bull_votes} Bulls)"
+                    st.error(msg)
+                else:
+                    msg = f"💀 **STRONG LIQUIDATE** ({bull_votes} Bulls)"
+                    st.error(msg)
+
+                st.markdown("---")
+                st.markdown("#### 📈 History & 3-Week Forward Consensus")
+                
+                r_feats = recent[['Open', 'High', 'Low', 'Close', 'Volume']]
+                
+                h_v1 = m3.predict(r_feats) >= recent['Close']
+                h_v2 = recent['Close'] >= recent['SMA_20']
+                h_v3 = pd.Series([v3] * len(recent), index=recent.index)
+                h_v4 = recent['Close'] >= recent['SMA_50']
+                h_v5 = recent['Close'] >= recent['Open']
+                h_v6 = m1.predict(r_feats) >= recent['Close']
+                
+                score_hist = (
+                    h_v1.astype(int) + h_v2.astype(int) + 
+                    h_v3.astype(int) + h_v4.astype(int) + 
+                    h_v5.astype(int) + h_v6.astype(int)
+                )
+                
+                s_w1 = sum([
+                    forecast_w3 >= forecast_w1, 
+                    forecast_w1 >= l_sma20, 
+                    v3, 
+                    forecast_w1 >= l_sma50, 
+                    forecast_w1 >= current_price, 
+                    forecast_w2 >= forecast_w1
+                ])
+                
+                s_w2 = sum([
+                    forecast_w3 >= forecast_w2, 
+                    forecast_w2 >= l_sma20, 
+                    v3, 
+                    forecast_w2 >= l_sma50, 
+                    forecast_w2 >= forecast_w1, 
+                    forecast_w3 >= forecast_w2
+                ])
+                
+                s_w3 = sum([
+                    True, 
+                    forecast_w3 >= l_sma20, 
+                    v3, 
+                    forecast_w3 >= l_sma50, 
+                    forecast_w3 >= forecast_w2, 
+                    True
+                ])
+                
+                f_dates = [
+                    recent.index[-1], 
+                    recent.index[-1]+timedelta(7), 
+                    recent.index[-1]+timedelta(14), 
+                    recent.index[-1]+timedelta(21)
+                ]
+                f_scores = [score_hist.iloc[-1], s_w1, s_w2, s_w3]
+                
+                fig_c = go.Figure()
+                
+                hist_line = go.Scatter(
+                    x=recent.index, y=score_hist, 
+                    mode='lines', name='Historic Consensus',
+                    line=dict(color='#29B6F6', width=2.5)
+                )
+                fig_c.add_trace(hist_line)
+                
+                fc_clr = '#00E676' if s_w3 >= s_w1 else '#FF1744'
+                fc_line = go.Scatter(
+                    x=f_dates
