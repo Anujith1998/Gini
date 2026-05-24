@@ -6,201 +6,269 @@ from textblob import TextBlob
 import requests
 import plotly.graph_objects as go
 from datetime import timedelta
+import xml.etree.ElementTree as ET
 
+# --- Setup ---
 st.set_page_config(page_title="ProQuant AI", layout="centered", page_icon="📈")
 st.title("ProQuant AI 📈")
+st.write("Advanced Market Analysis Engine")
 
-st.sidebar.header("⚙️ Settings")
-wl_input = st.sidebar.text_input("Watchlist:", "AAPL, NVDA, TSLA, AMD")
-wl_list = [t.strip().upper() for t in wl_input.split(",") if t.strip()]
+hf_token = st.secrets.get("HF_TOKEN", None)
 
-# --- 1. LIVE MOMENTUM DASHBOARD (Runs Automatically) ---
-st.markdown("### 🔥 Live Momentum Watchlist")
-if wl_list:
-    cols = st.columns(min(4, len(wl_list)))
-    for i, ticker in enumerate(wl_list[:4]):
+st.sidebar.header("⚙️ Controls")
+if not hf_token:
+    hf_token = st.sidebar.text_input("HF Token (Optional)", type="password")
+
+st.sidebar.markdown("---")
+st.sidebar.header("📝 Watchlist")
+wl_input = st.sidebar.text_input("Tickers:", "AAPL, NVDA, TSLA, AMD, MSFT")
+
+parsed_wl = []
+for t in wl_input.split(","):
+    if t.strip():
+        parsed_wl.append(t.strip().upper())
+watchlist_tuple = tuple(parsed_wl)
+
+st.sidebar.markdown("---")
+st.sidebar.header("🚨 Alerts")
+alert_threshold = st.sidebar.number_input("Alert Trigger (%)", value=4.0)
+max_price_filter = st.sidebar.slider("Max Price ($)", 10, 1000, 1000)
+
+# --- Powerful Helper Functions ---
+def resolve_company_name(query):
+    cleaned = query.strip()
+    if len(cleaned) <= 5 and cleaned.isalpha():
+        return cleaned.upper()
+    url = "https://query1.finance.yahoo.com/v1/finance/search"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    params = {"q": cleaned, "lang": "en-US", "region": "US"}
+    try:
+        res = requests.get(url, params=params, headers=headers, timeout=5)
+        data = res.json()
+        if data.get('quotes'):
+            return data['quotes'][0]['symbol'].upper()
+    except:
+        pass
+    return cleaned.upper()
+
+def get_resilient_news(stock_obj, ticker_str):
+    news_data = []
+    try:
+        news_data = stock_obj.news
+    except:
+        pass
+    if not news_data:
         try:
-            tk = yf.Ticker(ticker)
-            hist = tk.history(period="5d")
-            if len(hist) >= 2:
-                p_now = float(hist['Close'].iloc[-1])
-                p_prev = float(hist['Close'].iloc[-2])
-                pct_change = ((p_now - p_prev) / p_prev) * 100
-                cols[i].metric(ticker, f"${p_now:.2f}", f"{pct_change:+.2f}%")
+            url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker_str}"
+            headers = {"User-Agent": "Mozilla/5.0"}
+            res = requests.get(url, headers=headers, timeout=5)
+            if res.status_code == 200:
+                root = ET.fromstring(res.content)
+                for item in root.findall('.//item'):
+                    title = item.find('title')
+                    if title is not None and title.text:
+                        news_data.append({"title": title.text})
         except:
-            cols[i].metric(ticker, "N/A", "N/A")
+            pass
+    return news_data
+
+def query_finbert_api(text_list, token):
+    url = "https://api-inference.huggingface.co/models/ProsusAI/finbert"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        payload = {"inputs": text_list}
+        res = requests.post(url, headers=headers, json=payload, timeout=10)
+        return res.json()
+    except:
+        return None
+
+@st.cache_data(ttl=900, show_spinner=False)
+def scan_market_leaders_fast(watchlist):
+    scanned = []
+    q_list = list(watchlist)
+    if not q_list: 
+        return pd.DataFrame()
+    try:
+        df = yf.download(q_list, period="5d", progress=False) 
+        if df.empty: 
+            return pd.DataFrame()
+        for t in q_list:
+            try:
+                if isinstance(df.columns, pd.MultiIndex):
+                    col = df['Close'][t] if t in df['Close'].columns else None
+                else:
+                    col = df['Close'] if 'Close' in df.columns else None
+                if col is not None:
+                    series = col.dropna()
+                    if len(series) >= 2:
+                        today = float(series.iloc[-1])
+                        prev = float(series.iloc[-2])
+                        change = ((today - prev) / prev) * 100
+                        scanned.append({"ticker": t, "price": today, "change": change})
+            except: 
+                continue
+    except: 
+        pass
+    return pd.DataFrame(scanned)
+
+# --- UI: Live Momentum Watchlist ---
+st.markdown("### 🔥 Live Momentum Watchlist")
+if parsed_wl:
+    with st.spinner("Scanning..."):
+        scanner_df = scan_market_leaders_fast(watchlist_tuple)
+    if not scanner_df.empty:
+        f_df = scanner_df[scanner_df['price'] <= max_price_filter]
+        f_df = f_df.sort_values(by="change", ascending=False)
+        for _, row in f_df.iterrows():
+            if abs(row['change']) >= alert_threshold:
+                st.toast(f"{row['ticker']} shifted {row['change']:+.2f}%")
+        
+        display_count = min(4, len(f_df))
+        if display_count > 0:
+            cols = st.columns(display_count)
+            for i, row in enumerate(f_df.head(display_count).itertuples()):
+                lab = row.ticker
+                val = f"${row.price:.2f}"
+                delta = f"{row.change:+.2f}%"
+                cols[i].metric(label=lab, value=val, delta=delta)
+else:
+    st.warning("Enter tickers in the sidebar.")
 
 st.markdown("---")
 
-# --- 2. MASTER AI ANALYSIS ENGINE ---
-st.markdown("### 🔍 Run Deep AI Analysis")
-target_ticker = st.text_input("Enter Ticker Symbol:", "AAPL").upper().strip()
+# --- UI: Main Analysis Engine ---
+st.markdown("### 🔍 Run Deep AI Multi-Week Analysis")
+user_input = st.text_input("Company Name or Ticker:", "Apple")
 
-if st.button("Run Master Analysis"):
-    with st.spinner(f"Running multi-agent analysis on {target_ticker}..."):
-        stock = yf.Ticker(target_ticker)
-        data = stock.history(period="1y")
-        intraday = stock.history(period="5d", interval="5m")
-        
-        if len(data) < 50:
-            st.error("Not enough historical data for this asset.")
-            st.stop()
+if st.button("Run Master Multi-Week Analysis"):
+    try: 
+        with st.status("Running Engine...", expanded=True) as status:
+            st.write("Resolving identifier...")
+            ticker = resolve_company_name(user_input)
+            st.write(f"Confirmed: {ticker}")
             
-        # Core Math & Data Preparation
-        current_price = float(data['Close'].iloc[-1])
-        data['SMA_20'] = data['Close'].rolling(20).mean()
-        data['SMA_50'] = data['Close'].rolling(50).mean()
-        recent = data.iloc[-90:].copy()
-        
-        feats = ['Open', 'High', 'Low', 'Close', 'Volume']
-        latest_data = data[feats].iloc[-1:]
-        
-        # ML Engine 1: Week 1
-        df_1 = data.copy()
-        df_1['T'] = df_1['Close'].shift(-5)
-        df_1.dropna(inplace=True)
-        m1 = RandomForestRegressor(n_estimators=50, random_state=42)
-        m1.fit(df_1[feats], df_1['T'])
-        w1_pred = float(m1.predict(latest_data)[0])
-        
-        # ML Engine 2: Week 2
-        df_2 = data.copy()
-        df_2['T'] = df_2['Close'].shift(-10)
-        df_2.dropna(inplace=True)
-        m2 = RandomForestRegressor(n_estimators=50, random_state=42)
-        m2.fit(df_2[feats], df_2['T'])
-        w2_pred = float(m2.predict(latest_data)[0])
-        
-        # ML Engine 3: Week 3
-        df_3 = data.copy()
-        df_3['T'] = df_3['Close'].shift(-15)
-        df_3.dropna(inplace=True)
-        m3 = RandomForestRegressor(n_estimators=50, random_state=42)
-        m3.fit(df_3[feats], df_3['T'])
-        w3_pred = float(m3.predict(latest_data)[0])
-        
-        # Sentiment Engine
-        bull_s = 0
-        bear_s = 0
-        try:
-            news_items = stock.news[:5]
-            for item in news_items:
-                title = item.get('title', '')
-                pol = TextBlob(title).sentiment.polarity
-                if pol > 0.05:
-                    bull_s += 1
-                elif pol < -0.05:
-                    bear_s += 1
-        except:
-            pass
-
-        # --- TABS RENDERING ---
-        t1, t2, t3 = st.tabs(["🏦 Multi-Week Forecast", "⚡ Intraday", "👥 Debate Room"])
-        
-        with t1:
-            st.markdown(f"### 📊 AI Forecast Path: {target_ticker}")
+            stock = yf.Ticker(ticker)
+            data = stock.history(period="1y")      
+            intraday = stock.history(period="5d", interval="5m")  
             
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Current", f"${current_price:.2f}")
-            c2.metric("Week 1", f"${w1_pred:.2f}", f"{w1_pred-current_price:+.2f}")
-            c3.metric("Week 2", f"${w2_pred:.2f}", f"{w2_pred-w1_pred:+.2f}")
-            c4.metric("Week 3", f"${w3_pred:.2f}", f"{w3_pred-w2_pred:+.2f}")
-            
-            # Master Graph
-            fig1 = go.Figure()
-            
-            trace_price = go.Scatter(x=recent.index, y=recent['Close'], name='Price', line=dict(color='#29B6F6', width=2))
-            fig1.add_trace(trace_price)
-            
-            trace_s20 = go.Scatter(x=recent.index, y=recent['SMA_20'], name='20-SMA', line=dict(color='blue', width=1))
-            fig1.add_trace(trace_s20)
-            
-            last_date = recent.index[-1]
-            future_dates = [last_date, last_date+timedelta(7), last_date+timedelta(14), last_date+timedelta(21)]
-            future_vals = [current_price, w1_pred, w2_pred, w3_pred]
-            
-            path_color = '#00E676' if w3_pred >= current_price else '#FF1744'
-            trace_future = go.Scatter(x=future_dates, y=future_vals, mode='lines+markers', name='AI Path', line=dict(color=path_color, dash='dash', width=2))
-            fig1.add_trace(trace_future)
-            
-            fig1.update_layout(height=400, margin=dict(l=0, r=0, t=10, b=0))
-            st.plotly_chart(fig1, use_container_width=True)
-            
-            if w3_pred >= current_price:
-                st.success("🤖 Net 3-Week Status: BULLISH PATH DETECTED")
-            else:
-                st.error("🤖 Net 3-Week Status: BEARISH PATH DETECTED")
-
-        with t2:
-            st.markdown(f"### ⚡ Live Intraday Range: {target_ticker}")
-            if not intraday.empty:
-                i_cur = intraday['Close'].iloc[-1]
-                i_hi = intraday['High'].max()
-                i_lo = intraday['Low'].min()
+            if data.empty:
+                status.update(label="Error", state="error")
+                st.error("No market data found.")
+                st.stop()
                 
-                ic1, ic2, ic3 = st.columns(3)
-                ic1.metric("Live Price", f"${i_cur:.2f}")
-                ic2.metric("Session High", f"${i_hi:.2f}")
-                ic3.metric("Session Low", f"${i_lo:.2f}")
-                
-                spread = i_hi - i_lo if i_hi != i_lo else 1
-                percent_pos = int(((i_cur - i_lo) / spread) * 100)
-                clamped_pos = max(0, min(100, percent_pos))
-                st.progress(clamped_pos / 100)
-                st.caption(f"Current price is at the {clamped_pos}th percentile of today's total range.")
-
-        with t3:
-            st.markdown("### 🗳️ 6-Agent AI Consensus Scoreboard")
+            st.write("Training ML models...")
+            feats = ['Open', 'High', 'Low', 'Close', 'Volume']
+            latest_data = data[feats].iloc[-1:]
+            current_price = data['Close'].iloc[-1]
             
-            sma20_val = data['SMA_20'].iloc[-1]
-            sma50_val = data['SMA_50'].iloc[-1]
-            open_val = data['Open'].iloc[-1]
+            data['SMA_20'] = data['Close'].rolling(window=20).mean()
+            data['SMA_50'] = data['Close'].rolling(window=50).mean()
+            recent = data.iloc[-90:].copy()
             
-            # The 6 Agents Vote
-            v1 = w3_pred >= current_price
-            v2 = current_price >= sma20_val
-            v3 = bull_s >= bear_s
-            v4 = current_price >= sma50_val
-            v5 = current_price >= open_val
-            v6 = w1_pred >= current_price
+            # Machine Learning 1: 5 Days
+            df_w1 = data.copy()
+            df_w1['Target'] = df_w1['Close'].shift(-5)
+            df_w1.dropna(inplace=True)
+            m1 = RandomForestRegressor(n_estimators=100, random_state=42)
+            m1.fit(df_w1[feats], df_w1['Target'])
+            forecast_w1 = m1.predict(latest_data)[0]
             
-            votes = [v1, v2, v3, v4, v5, v6]
-            bull_count = sum(votes)
-            stances = ["🟢 BULL" if v else "🔴 BEAR" for v in votes]
+            # Machine Learning 2: 10 Days
+            df_w2 = data.copy()
+            df_w2['Target'] = df_w2['Close'].shift(-10)
+            df_w2.dropna(inplace=True)
+            m2 = RandomForestRegressor(n_estimators=100, random_state=42)
+            m2.fit(df_w2[feats], df_w2['Target'])
+            forecast_w2 = m2.predict(latest_data)[0]
             
-            df_votes = pd.DataFrame({
-                "Agent Array": ["Agent 1: 3-Week ML", "Agent 2: 20-SMA", "Agent 3: Sentiment", "Agent 4: 50-SMA", "Agent 5: Intraday Pivot", "Agent 6: 1-Week ML"],
-                "Stance": stances
-            })
-            st.table(df_votes)
+            # Machine Learning 3: 15 Days
+            df_w3 = data.copy()
+            df_w3['Target'] = df_w3['Close'].shift(-15)
+            df_w3.dropna(inplace=True)
+            m3 = RandomForestRegressor(n_estimators=100, random_state=42)
+            m3.fit(df_w3[feats], df_w3['Target'])
+            forecast_w3 = m3.predict(latest_data)[0]
             
-            st.markdown("#### ⚖️ Final Arbitration")
-            if bull_count >= 4:
-                st.success(f"🎯 **BULLISH CONSENSUS** ({bull_count}/6 Agents)")
-            elif bull_count == 3:
-                st.warning(f"⚡ **NEUTRAL / HOLD** ({bull_count}/6 Agents)")
+            st.write("Scanning global sentiment...")
+            news = get_resilient_news(stock, ticker)
+            bull_s, bear_s = 0, 0
+            
+            if news:
+                texts = [i.get('title', '') for i in news[:5] if 'title' in i]
+                num_hl = len(texts)
+                if num_hl > 0:
+                    api_res = None
+                    if hf_token:
+                        api_res = query_finbert_api(texts, hf_token)
+                        
+                    is_valid_api = isinstance(api_res, list) and "error" not in api_res
+                    if hf_token and is_valid_api:
+                        for r_list in api_res:
+                            if isinstance(r_list, list):
+                                for item in r_list:
+                                    lbl = item.get('label')
+                                    scr = item.get('score', 0)
+                                    if lbl == 'positive': bull_s += scr
+                                    elif lbl == 'negative': bear_s += scr
+                    else:
+                        for txt in texts:
+                            pol = TextBlob(txt).sentiment.polarity
+                            if pol > 0.1: bull_s += pol
+                            elif pol < -0.1: bear_s += abs(pol)
             else:
-                st.error(f"🚨 **BEARISH CONSENSUS** ({bull_count}/6 Agents)")
+                num_hl = 0
+            
+            status.update(label="Complete!", state="complete", expanded=False)
 
-            st.markdown("---")
-            st.markdown("#### 📈 Forward AI Consensus Path")
-            st.write("Projecting how the Consensus Score will shift over the next 3 weeks based on ML price targets:")
+        # --- Dashboard Rendering ---
+        if not data.empty:
+            tab1, tab2, tab3 = st.tabs(["🏦 Forecast", "⚡ Intraday", "👥 AI Debate"])
             
-            # Projecting Future Votes based on ML Targets
-            f_w1 = sum([w3_pred>=w1_pred, w1_pred>=sma20_val, v3, w1_pred>=sma50_val, w1_pred>=current_price, w2_pred>=w1_pred])
-            f_w2 = sum([w3_pred>=w2_pred, w2_pred>=sma20_val, v3, w2_pred>=sma50_val, w2_pred>=w1_pred, w3_pred>=w2_pred])
-            f_w3 = sum([True, w3_pred>=sma20_val, v3, w3_pred>=sma50_val, w3_pred>=w2_pred, True])
-            
-            f_scores = [bull_count, f_w1, f_w2, f_w3]
-            
-            fig_cons = go.Figure()
-            cons_trace = go.Scatter(x=future_dates, y=f_scores, mode='lines+markers', name='Consensus Path', line=dict(color=path_color, width=3, dash='dash'))
-            fig_cons.add_trace(cons_trace)
-            
-            # Add safe background shading
-            fig_cons.add_hrect(y0=3.5, y1=6.5, fillcolor="rgba(0,230,118,0.1)", layer="below", line_width=0)
-            fig_cons.add_hrect(y0=-0.5, y1=2.5, fillcolor="rgba(255,23,68,0.1)", layer="below", line_width=0)
-            
-            fig_cons.update_layout(yaxis=dict(range=[-0.5, 6.5], tickvals=[0,1,2,3,4,5,6], title="Bull Votes"), height=300, margin=dict(l=0, r=0, t=10, b=0))
-            st.plotly_chart(fig_cons, use_container_width=True)
-            
+            with tab1:
+                st.markdown(f"### 📊 Forecast Path: {ticker}")
+                
+                mc1, mc2, mc3, mc4 = st.columns(4)
+                mc1.metric("Current", f"${current_price:.2f}")
+                
+                val1 = f"${forecast_w1:.2f}"
+                del1 = f"{forecast_w1-current_price:+.2f}"
+                mc2.metric("Wk 1", val1, del1)
+                
+                val2 = f"${forecast_w2:.2f}"
+                del2 = f"{forecast_w2-forecast_w1:+.2f}"
+                mc3.metric("Wk 2", val2, del2)
+                
+                val3 = f"${forecast_w3:.2f}"
+                del3 = f"{forecast_w3-forecast_w2:+.2f}"
+                mc4.metric("Wk 3", val3, del3)
+                st.markdown("---")
+                
+                # Math for standard deviation tunnels
+                h_std = data['Close'].pct_change().std()
+                u_w1 = current_price * h_std * (7 ** 0.5)
+                u_w2 = current_price * h_std * (14 ** 0.5)
+                u_w3 = current_price * h_std * (21 ** 0.5)
+                
+                fig = go.Figure()
+                
+                c_trace = go.Candlestick(
+                    x=recent.index, open=recent['Open'], 
+                    high=recent['High'], low=recent['Low'], 
+                    close=recent['Close'], name='Price'
+                )
+                fig.add_trace(c_trace)
+                
+                s20_trace = go.Scatter(x=recent.index, y=recent['SMA_20'], name='20 SMA', line=dict(color='#29B6F6', width=1))
+                fig.add_trace(s20_trace)
+                
+                s50_trace = go.Scatter(x=recent.index, y=recent['SMA_50'], name='50 SMA', line=dict(color='#FFA726', width=1))
+                fig.add_trace(s50_trace)
+                
+                l_date = recent.index[-1]
+                t_line = [l_date, l_date+timedelta(7), l_date+timedelta(14), l_date+timedelta(21)]
+                p_vals = [current_price, forecast_w1, forecast_w2, forecast_w3]
+                
+                up_y = [current_price, forecast_w1+u_w1, forecast_w2+u_w2, forecast_w3+u_w3]
+                up_trace = go.Scatter(x=t_line, y=up_y, mode='lines', showlegend=False, line=dict(width=0))
+                fig.add
+                
