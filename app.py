@@ -329,30 +329,36 @@ if st.button("Run Master Multi-Week Analysis"):
                 
                 st.markdown("#### AI Diagnostics & Reasoning")
                 net_move = forecast_w3 - current_price
+                
                 if net_move >= 0:
                     st.success("🤖 Mathematical Model Cascade: NET BULLISH OUTLOOK")
-                    st.write(
-                        f"**Specifics:** Three distinct Random Forest setups calculated "
-                        f"future intervals from a base price of **\\${current_price:.2f}**. "
+                    msg_bull = (
+                        f"Specifics: Three distinct Random Forest setups calculated "
+                        f"future intervals from a base price of ${current_price:.2f}. "
                         f"The math displays sequential shifts leading to a cumulative target "
-                        f"of **\\${forecast_w3:.2f}** over the next 3 weeks."
+                        f"of ${forecast_w3:.2f} over the next 3 weeks."
                     )
+                    st.write(msg_bull)
                 else:
                     st.error("🤖 Mathematical Model Cascade: NET BEARISH OUTLOOK")
-                    st.write(
-                        f"**Specifics:** Three distinct Random Forest setups calculated "
-                        f"future intervals from a base price of **\\${current_price:.2f}**. "
+                    msg_bear = (
+                        f"Specifics: Three distinct Random Forest setups calculated "
+                        f"future intervals from a base price of ${current_price:.2f}. "
                         f"The math displays sequential degradation leading to a cumulative target "
-                        f"of **\\${forecast_w3:.2f}** over the next 3 weeks."
+                        f"of ${forecast_w3:.2f} over the next 3 weeks."
                     )
+                    st.write(msg_bear)
                     
                 if num_headlines > 0:
                     if bullish_score > bearish_score:
-                        st.success(f"📰 Market Psychology ({engine_used}): BULLISH ({num_headlines} Headlines Scanned)")
+                        lbl_bull = f"📰 Market Psychology ({engine_used}): BULLISH ({num_headlines} Headlines Scanned)"
+                        st.success(lbl_bull)
                     elif bearish_score > bullish_score:
-                        st.error(f"📰 Market Psychology ({engine_used}): BEARISH ({num_headlines} Headlines Scanned)")
+                        lbl_bear = f"📰 Market Psychology ({engine_used}): BEARISH ({num_headlines} Headlines Scanned)"
+                        st.error(lbl_bear)
                     else:
-                        st.info(f"⚖️ Market Psychology ({engine_used}): NEUTRAL ({num_headlines} Headlines Scanned)")
+                        lbl_neu = f"📰 Market Psychology ({engine_used}): NEUTRAL ({num_headlines} Headlines Scanned)"
+                        st.info(lbl_neu)
                 else:
                     st.warning("⚠️ Sentiment Warning: No active news headlines available for this asset currently.")
 
@@ -394,13 +400,18 @@ if st.button("Run Master Multi-Week Analysis"):
                 # --- AGENT 1 LOGIC ---
                 st.markdown("**🧠 Sophia Vance | Chief Quant Modeler:**")
                 if sophia_bullish:
-                    st.info(f"\"The machine learning model matrix is clear. My Random Forest cascade tracks non-linear momentum variables shifting toward a 3-week target of **${forecast_w3:.2f}**. This mathematical path is statistically sound. I am strictly buying this expansion.\"")
+                    sophia_txt = (
+                        f"\"The machine learning model matrix is clear. My Random Forest "
+                        f"cascade tracks non-linear momentum variables shifting toward a "
+                        f"3-week target of ${forecast_w3:.2f}. This mathematical path is "
+                        f"statistically sound. I am strictly buying this expansion.\""
+                    )
+                    st.info(sophia_txt)
                 else:
-                    st.error(f"\"The data structure is breaking down. The predictive architecture is tracking a structural weakness pattern collapsing down toward **${forecast_w3:.2f}** by week 3. Buying here is playing chicken with a train. I am calling for an immediate short position.\"")
-                    
-                # --- AGENT 2 LOGIC ---
-                st.markdown("**📈 Marcus Brody | Lead Technical Chartist:**")
-                if marcus_bullish:
-                    st.info(f"\"Hold on Sophia, look at the actual tape. Price is printing structural support at **${current_price:.2f}**, which clears our 20-Day moving average baseline of **${latest_sma20:.2f}**. Trend dynamics dictate that the path of least resistance is higher. I align with the bulls on this breakout.\"")
-                else:
-        
+                    sophia_txt = (
+                        f"\"The data structure is breaking down. The predictive architecture "
+                        f"is tracking a structural weakness pattern collapsing down toward "
+                        f"${forecast_w3:.2f} by week 3. Buying here is playing chicken with "
+                        f"a train. I am calling for an immediate short position.\""
+                    )
+                    st.error(s
