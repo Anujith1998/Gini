@@ -484,4 +484,12 @@ if st.button("Run Master Multi-Week Analysis"):
                     legend=dict(
                         orientation="h", 
                         yanchor="bottom", 
-           
+                        y=1.02, 
+                        xanchor="right", 
+                        x=1
+                    )
+                )
+                st.plotly_chart(fig_c, use_container_width=True)
+
+    except Exception as e:
+        st.error(f"Terminal Exception Error: {e}")
