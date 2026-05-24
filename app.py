@@ -221,6 +221,7 @@ if st.button("Run Master Multi-Week Analysis"):
                 news = get_resilient_news(stock, ticker)
                 bull_s, bear_s, num_hl = 0, 0, 0
                 engine = "TextBlob Engine"
+                texts = []
                 
                 if news:
                     texts = [i.get('title', '') for i in news[:5] if 'title' in i]
@@ -311,26 +312,31 @@ if st.button("Run Master Multi-Week Analysis"):
                 )
                 st.plotly_chart(fig, use_container_width=True)
                 
-                m_df = pd.DataFrame({
-                    "Horizon": ["Week 1", "Week 2", "Week 3"],
-                    "Target": [f"${forecast_w1:.2f}", f"${forecast_w2:.2f}", f"${forecast_w3:.2f}"],
-                    "Move": [f"{((forecast_w1/current_price)-1)*100:+.2f}%", f"{((forecast_w2/current_price)-1)*100:+.2f}%", f"{((forecast_w3/current_price)-1)*100:+.2f}%"]
-                })
-                st.table(m_df)
+                st.markdown("#### 🧠 AI Diagnostics & Explanations")
                 
-                st.markdown("#### AI Diagnostics & Analysis")
-                if (forecast_w3 - current_price) >= 0:
-                    st.success("🤖 Cascade Status: NET BULLISH DETECTED")
-                else:
-                    st.error("🤖 Cascade Status: NET BEARISH DETECTED")
-                    
+                # --- NEW EXPLANATION BLOCK ---
+                with st.expander("🤖 View Predictive Model Logic", expanded=True):
+                    move_pct = ((forecast_w3/current_price)-1)*100
+                    st.write(f"The Machine Learning Matrix projects a 3-week target of **${forecast_w3:.2f}**, representing a **{move_pct:+.2f}%** shift.")
+                    if forecast_w3 >= current_price:
+                        st.write("🟢 **Analysis:** The Random Forest algorithm detected upward structural momentum across the historical dataset, signaling a NET BULLISH bias.")
+                    else:
+                        st.write("🔴 **Analysis:** The Random Forest algorithm detected technical weakness and exhaustion patterns, signaling a NET BEARISH bias.")
+
+                # --- NEW EXPLICIT NEWS ANALYSIS BLOCK ---
                 if num_hl > 0:
                     if bull_s > bear_s:
-                        st.success(f"📰 Sentiment Layer: BULLISH ({num_hl} Alerts)")
+                        st.success(f"📰 Sentiment Layer: BULLISH ({num_hl} Headlines Analyzed)")
                     elif bear_s > bull_s:
-                        st.error(f"📰 Sentiment Layer: BEARISH ({num_hl} Alerts)")
+                        st.error(f"📰 Sentiment Layer: BEARISH ({num_hl} Headlines Analyzed)")
                     else:
-                        st.info(f"📰 Sentiment Layer: NEUTRAL ({num_hl} Alerts)")
+                        st.info(f"📰 Sentiment Layer: NEUTRAL ({num_hl} Headlines Analyzed)")
+                        
+                    with st.expander(f"🔍 View Analyzed News Headlines ({engine})"):
+                        for i, txt in enumerate(texts):
+                            st.write(f"**{i+1}.** {txt}")
+                else:
+                    st.warning("📰 Sentiment Layer: No recent news headlines found for analysis.")
 
             with tab2:
                 st.markdown(f"### ⚡ Intraday Diagnostics: {ticker}")
@@ -393,49 +399,92 @@ if st.button("Run Master Multi-Week Analysis"):
                     st.error(f"💀 **STRONG LIQUIDATE / SHORT** ({bull_votes} Bulls)")
 
                 st.markdown("---")
-                st.markdown("#### 📈 90-Day Price History & AI Forward Price Path")
+                st.markdown("#### 📈 History & 3-Week Forward Consensus Trend")
                 
-                # Historical Close timeline setup
-                h_dates = recent.index
-                h_prices = recent['Close']
+                # Backtesting the 6 Agents across the last 90 days
+                r_feats = recent[['Open', 'High', 'Low', 'Close', 'Volume']]
                 
-                # Forward Projection Timeline (Dates and forecasted numerical dollar values)
+                h_v1 = m3.predict(r_feats) >= recent['Close']
+                h_v2 = recent['Close'] >= recent['SMA_20']
+                h_v3 = pd.Series([v3] * len(recent), index=recent.index)
+                h_v4 = recent['Close'] >= recent['SMA_50']
+                h_v5 = recent['Close'] >= recent['Open']
+                h_v6 = m1.predict(r_feats) >= recent['Close']
+                
+                # Sum the True votes (0 to 6 max)
+                score_hist = (
+                    h_v1.astype(int) + h_v2.astype(int) + 
+                    h_v3.astype(int) + h_v4.astype(int) + 
+                    h_v5.astype(int) + h_v6.astype(int)
+                )
+
+                # Future Forward Projection Logic for voting trend line
+                s_w1 = sum([
+                    forecast_w3 >= forecast_w1, forecast_w1 >= l_sma20, 
+                    v3, forecast_w1 >= l_sma50, forecast_w1 >= current_price, 
+                    forecast_w2 >= forecast_w1
+                ])
+                
+                s_w2 = sum([
+                    forecast_w3 >= forecast_w2, forecast_w2 >= l_sma20, 
+                    v3, forecast_w2 >= l_sma50, forecast_w2 >= forecast_w1, 
+                    forecast_w3 >= forecast_w2
+                ])
+                
+                s_w3 = sum([
+                    True, forecast_w3 >= l_sma20, v3, 
+                    forecast_w3 >= l_sma50, forecast_w3 >= forecast_w2, True
+                ])
+                
                 f_dates = [
                     recent.index[-1], 
                     recent.index[-1] + timedelta(7), 
                     recent.index[-1] + timedelta(14), 
                     recent.index[-1] + timedelta(21)
                 ]
-                f_prices = [current_price, forecast_w1, forecast_w2, forecast_w3]
+                f_scores = [score_hist.iloc[-1], s_w1, s_w2, s_w3]
                 
-                # Render the Debate Room Price Chart
+                # Render the Graph
                 fig_c = go.Figure()
                 
-                # 1. Historical Data Line (Solid)
+                # Historic Trace
                 fig_c.add_trace(go.Scatter(
-                    x=h_dates, 
-                    y=h_prices, 
+                    x=recent.index, 
+                    y=score_hist, 
                     mode='lines', 
-                    name='Historical Close',
+                    name='Historic Consensus',
                     line=dict(color='#29B6F6', width=2.5)
                 ))
 
-                # 2. Future Forecast Path Line (Dashed, Green/Red based on target)
-                fc_clr = '#00E676' if forecast_w3 >= current_price else '#FF1744'
+                # Future Forecast Trace (Dashed)
+                fc_clr = '#00E676' if s_w3 >= s_w1 else '#FF1744'
                 fig_c.add_trace(go.Scatter(
                     x=f_dates, 
-                    y=f_prices, 
+                    y=f_scores, 
                     mode='lines+markers', 
-                    name='Model Price Path',
+                    name='AI Forecast Path',
                     line=dict(color=fc_clr, width=2.5, dash='dash')
                 ))
                 
+                # Shaded Background Zones
+                fig_c.add_hrect(
+                    y0=3.5, y1=6.5, 
+                    fillcolor="rgba(0,230,118,0.1)", 
+                    layer="below", line_width=0
+                )
+                fig_c.add_hrect(
+                    y0=-0.5, y1=2.5, 
+                    fillcolor="rgba(255,23,68,0.1)", 
+                    layer="below", line_width=0
+                )
+                
                 fig_c.update_layout(
                     yaxis=dict(
-                        title="Price ($)",
-                        autorange=True
+                        range=[-0.5, 6.5], 
+                        tickvals=[0,1,2,3,4,5,6],
+                        title="Bull Votes (0-6)"
                     ),
-                    height=300,
+                    height=250,
                     margin=dict(l=5, r=5, t=10, b=5),
                     xaxis_rangeslider_visible=False,
                     legend=dict(
