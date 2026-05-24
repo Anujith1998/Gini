@@ -393,7 +393,7 @@ if st.button("Run Master Multi-Week Analysis"):
                     st.error(f"💀 **STRONG LIQUIDATE / SHORT** ({bull_votes} Bulls)")
 
                 st.markdown("---")
-                st.markdown("#### 📈 90-Day Historic Consensus Trend")
+                st.markdown("#### 📈 History & 3-Week Forward Consensus")
                 
                 # Backtesting the 6 Agents across the last 90 days
                 r_feats = recent[['Open', 'High', 'Low', 'Close', 'Volume']]
@@ -411,41 +411,43 @@ if st.button("Run Master Multi-Week Analysis"):
                     h_v3.astype(int) + h_v4.astype(int) + 
                     h_v5.astype(int) + h_v6.astype(int)
                 )
+
+                # Future Forward Projection Logic
+                s_w1 = sum([
+                    forecast_w3 >= forecast_w1, forecast_w1 >= l_sma20, 
+                    v3, forecast_w1 >= l_sma50, forecast_w1 >= current_price, 
+                    forecast_w2 >= forecast_w1
+                ])
+                
+                s_w2 = sum([
+                    forecast_w3 >= forecast_w2, forecast_w2 >= l_sma20, 
+                    v3, forecast_w2 >= l_sma50, forecast_w2 >= forecast_w1, 
+                    forecast_w3 >= forecast_w2
+                ])
+                
+                s_w3 = sum([
+                    True, forecast_w3 >= l_sma20, v3, 
+                    forecast_w3 >= l_sma50, forecast_w3 >= forecast_w2, True
+                ])
+                
+                f_dates = [
+                    recent.index[-1], recent.index[-1]+timedelta(7), 
+                    recent.index[-1]+timedelta(14), recent.index[-1]+timedelta(21)
+                ]
+                f_scores = [score_hist.iloc[-1], s_w1, s_w2, s_w3]
                 
                 # Render the Graph
                 fig_c = go.Figure()
+                
+                # Historic Trace
                 fig_c.add_trace(go.Scatter(
                     x=recent.index, 
                     y=score_hist, 
                     mode='lines', 
-                    name='Consensus Score',
+                    name='Historic Consensus',
                     line=dict(color='#29B6F6', width=2.5)
                 ))
-                
-                # Shaded Background Zones
-                fig_c.add_hrect(
-                    y0=3.5, y1=6.5, 
-                    fillcolor="rgba(0,230,118,0.1)", 
-                    layer="below", line_width=0
-                )
-                fig_c.add_hrect(
-                    y0=-0.5, y1=2.5, 
-                    fillcolor="rgba(255,23,68,0.1)", 
-                    layer="below", line_width=0
-                )
-                
-                fig_c.update_layout(
-                    yaxis=dict(
-                        range=[-0.5, 6.5], 
-                        tickvals=[0,1,2,3,4,5,6],
-                        title="Bull Votes (0-6)"
-                    ),
-                    height=250,
-                    margin=dict(l=5, r=5, t=10, b=5),
-                    xaxis_rangeslider_visible=False
-                )
-                st.plotly_chart(fig_c, use_container_width=True)
 
-    except Exception as e:
-        st.error(f"Terminal Exception Error: {e}")
-        
+                # Future Forecast Trace (Dashed)
+                fc_clr = '#00E676' if s_w3 >= s_w1
+                
