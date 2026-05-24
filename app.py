@@ -188,6 +188,11 @@ if st.button("Run Master Multi-Week Analysis"):
                 latest_data = data[feats].iloc[-1:]
                 current_price = data['Close'].iloc[-1]
                 
+                # Pre-calculate data structures
+                data['SMA_20'] = data['Close'].rolling(window=20).mean()
+                data['SMA_50'] = data['Close'].rolling(window=50).mean()
+                recent = data.iloc[-90:]
+                
                 # Model 1: 5 Days
                 df_w1 = data.copy()
                 df_w1['Target'] = df_w1['Close'].shift(-5)
@@ -261,61 +266,71 @@ if st.button("Run Master Multi-Week Analysis"):
 
                 st.markdown("---")
                 
-                data['SMA_20'] = data['Close'].rolling(window=20).mean()
-                data['SMA_50'] = data['Close'].rolling(window=50).mean()
-                
                 h_std = data['Close'].pct_change().std()
                 u_w1 = current_price * h_std * (7 ** 0.5)
                 u_w2 = current_price * h_std * (14 ** 0.5)
                 u_w3 = current_price * h_std * (21 ** 0.5)
-                
-                recent = data.iloc[-90:]
                 
                 fig = go.Figure(data=[go.Candlestick(
                     x=recent.index, open=recent['Open'], high=recent['High'],
                     low=recent['Low'], close=recent['Close'], name='Price'
                 )])
                 
-                fig.add_trace(go.Scatter(x=recent.index, y=recent['SMA_20'], name='20 SMA', line=dict(color='#29B6F6', width=1)))
-                fig.add_trace(go.Scatter(x=recent.index, y=recent['SMA_50'], name='50 SMA', line=dict(color='#FFA726', width=1)))
+                fig.add_trace(go.Scatter(
+                    x=recent.index, y=recent['SMA_20'], 
+                    name='20 SMA', line=dict(color='#29B6F6', width=1)
+                ))
+                fig.add_trace(go.Scatter(
+                    x=recent.index, y=recent['SMA_50'], 
+                    name='50 SMA', line=dict(color='#FFA726', width=1)
+                ))
                 
                 l_date = recent.index[-1]
                 t_line = [l_date, l_date+timedelta(7), l_date+timedelta(14), l_date+timedelta(21)]
                 p_vals = [current_price, forecast_w1, forecast_w2, forecast_w3]
                 
-                fig.add_trace(go.Scatter(x=t_line, y=[current_price, forecast_w1+u_w1, forecast_w2+u_w2, forecast_w3+u_w3], mode='lines', showlegend=False, line=dict(width=0)))
-                fig.add_trace(go.Scatter(x=t_line, y=[current_price, forecast_w1-u_w1, forecast_w2-u_w2, forecast_w3-u_w3], mode='lines', fill='tonexty', fillcolor='rgba(0,230,118,0.03)', name='Tunnel'))
+                fig.add_trace(go.Scatter(
+                    x=t_line, 
+                    y=[current_price, forecast_w1+u_w1, forecast_w2+u_w2, forecast_w3+u_w3], 
+                    mode='lines', showlegend=False, line=dict(width=0)
+                ))
+                fig.add_trace(go.Scatter(
+                    x=t_line, 
+                    y=[current_price, forecast_w1-u_w1, forecast_w2-u_w2, forecast_w3-u_w3], 
+                    mode='lines', fill='tonexty', fillcolor='rgba(0,230,118,0.03)', name='Tunnel'
+                ))
                 
                 c_clr = '#00E676' if forecast_w3 >= current_price else '#FF1744'
-                fig.add_trace(go.Scatter(x=t_line, y=p_vals, mode='lines+markers', name='AI Path', line=dict(color=c_clr, width=2, dash='dash')))
-                fig.update_layout(xaxis_rangeslider_visible=False, height=400, margin=dict(l=5, r=5, t=5, b=5))
+                fig.add_trace(go.Scatter(
+                    x=t_line, y=p_vals, mode='lines+markers', 
+                    name='AI Path', line=dict(color=c_clr, width=2, dash='dash')
+                ))
+                fig.update_layout(
+                    xaxis_rangeslider_visible=False, height=400, 
+                    margin=dict(l=5, r=5, t=5, b=5)
+                )
                 st.plotly_chart(fig, use_container_width=True)
                 
                 m_df = pd.DataFrame({
                     "Horizon": ["Week 1", "Week 2", "Week 3"],
-                    "Target Price": [f"${forecast_w1:.2f}", f"${forecast_w2:.2f}", f"${forecast_w3:.2f}"],
-                    "Net Move": [f"{((forecast_w1/current_price)-1)*100:+.2f}%", f"{((forecast_w2/current_price)-1)*100:+.2f}%", f"{((forecast_w3/current_price)-1)*100:+.2f}%"],
-                    "Bounds": [f"±${u_w1:.2f}", f"±${u_w2:.2f}", f"±${u_w3:.2f}"]
+                    "Target": [f"${forecast_w1:.2f}", f"${forecast_w2:.2f}", f"${forecast_w3:.2f}"],
+                    "Move": [f"{((forecast_w1/current_price)-1)*100:+.2f}%", f"{((forecast_w2/current_price)-1)*100:+.2f}%", f"{((forecast_w3/current_price)-1)*100:+.2f}%"]
                 })
                 st.table(m_df)
                 
                 st.markdown("#### AI Diagnostics & Analysis")
                 if (forecast_w3 - current_price) >= 0:
-                    st.success("🤖 Cascade Status: NET BULLISH TREND DETECTED")
-                    st.write(f"Random Forest setups model asset expansion toward ${forecast_w3:.2f}.")
+                    st.success("🤖 Cascade Status: NET BULLISH DETECTED")
                 else:
-                    st.error("🤖 Cascade Status: NET BEARISH TREND DETECTED")
-                    st.write(f"Random Forest setups model asset reduction toward ${forecast_w3:.2f}.")
+                    st.error("🤖 Cascade Status: NET BEARISH DETECTED")
                     
                 if num_hl > 0:
                     if bull_s > bear_s:
-                        st.success(f"📰 Sentiment Layer ({engine}): BULLISH ({num_hl} Headlines)")
+                        st.success(f"📰 Sentiment Layer: BULLISH ({num_hl} Alerts)")
                     elif bear_s > bull_s:
-                        st.error(f"📰 Sentiment Layer ({engine}): BEARISH ({num_hl} Headlines)")
+                        st.error(f"📰 Sentiment Layer: BEARISH ({num_hl} Alerts)")
                     else:
-                        st.info(f"📰 Sentiment Layer ({engine}): NEUTRAL ({num_hl} Headlines)")
-                else:
-                    st.warning("⚠️ Sentiment Alert: No active headlines discovered.")
+                        st.info(f"📰 Sentiment Layer: NEUTRAL ({num_hl} Alerts)")
 
             with tab2:
                 st.markdown(f"### ⚡ Intraday Diagnostics: {ticker}")
@@ -332,58 +347,104 @@ if st.button("Run Master Multi-Week Analysis"):
                     denom = (i_hi - i_lo) if (i_hi - i_lo) != 0 else 1
                     pos = int(((i_cur - i_lo) / denom) * 100)
                     st.progress(max(0, min(100, pos)) / 100)
-                    st.caption(f"Current price position is at {pos}% of today's bracket.")
+                    st.caption(f"Price is at {pos}% of today's bracket.")
 
             with tab3:
-                st.markdown("### 👥 Institutional AI Debate Arena")
-                st.write("Consensus negotiation between algorithmic agents.")
-                st.markdown("---")
+                st.markdown("### 🗳️ 6-Agent AI Consensus Scoreboard")
                 
                 l_sma20 = float(data['SMA_20'].iloc[-1])
-                sophia_b = (forecast_w3 >= current_price)
-                marcus_b = (current_price >= l_sma20)
-                elena_b = (bull_s >= bear_s) if num_hl > 0 else None
+                l_sma50 = float(data['SMA_50'].iloc[-1])
+                l_open = float(data['Open'].iloc[-1])
                 
-                votes = [sophia_b, marcus_b]
-                if elena_b is not None:
-                    votes.append(elena_b)
-                b_votes = votes.count(True)
-                t_votes = len(votes)
+                v1 = (forecast_w3 >= current_price)
+                v2 = (current_price >= l_sma20)
+                v3 = (bull_s >= bear_s) if num_hl > 0 else True
+                v4 = (current_price >= l_sma50)
+                v5 = (current_price >= l_open)
+                v6 = (forecast_w1 >= current_price)
                 
-                # Agent 1
-                st.markdown("**🧠 Sophia Vance | Quant Modeling:**")
-                if sophia_b:
-                    st.info(f"Predictive matrices tracking target alignment toward ${forecast_w3:.2f}. Long position supported.")
+                votes = [v1, v2, v3, v4, v5, v6]
+                bull_votes = votes.count(True)
+                bear_votes = votes.count(False)
+                
+                v_df = pd.DataFrame({
+                    "Algorithmic Voter Node": [
+                        "Agent 1: Cascade ML Matrix (3-Week)",
+                        "Agent 2: Short Trend Engine (20-Day SMA)",
+                        "Agent 3: Media Sentiment Array",
+                        "Agent 4: Macro Baseline (50-Day SMA)",
+                        "Agent 5: Intraday Opening Pivot",
+                        "Agent 6: Immediate Vector (1-Week Path)"
+                    ],
+                    "Stance": ["🟢 BULL" if v else "🔴 BEAR" for v in votes]
+                })
+                st.table(v_df)
+                
+                st.markdown("#### ⚖️ Final Arbitration Verdict")
+                if bull_votes >= 5:
+                    st.success(f"🎯 **STRONG BUY** ({bull_votes} Bulls)")
+                elif bull_votes == 4:
+                    st.info(f"⚖️ **TACTICAL ACCUMULATE** ({bull_votes} Bulls)")
+                elif bull_votes == 3:
+                    st.warning(f"⚡ **EQUAL WEIGHT / HOLD** ({bull_votes} Bulls)")
+                elif bull_votes == 2:
+                    st.error(f"🚨 **TACTICAL REDUCE / SHORT** ({bull_votes} Bulls)")
                 else:
-                    st.error(f"Structural weakness modeling price degradation toward ${forecast_w3:.2f}. Short entry triggered.")
-                    
-                # Agent 2
-                st.markdown("**📈 Marcus Brody | Technical Charting:**")
-                if marcus_b:
-                    st.info(f"Price matches parameters above 20 SMA baseline of ${l_sma20:.2f}. Upward trend intact.")
-                else:
-                    st.error(f"20-Day SMA ceiling at ${l_sma20:.2f} limits expansion. Resistance is dominant.")
-                    
-                # Agent 3
-                st.markdown("**📰 Elena Rostova | Macro Sentiment:**")
-                if elena_b is True:
-                    st.info(f"Scan logs indicate constructive media flows across {num_hl} feeds. Bullish bias.")
-                elif elena_b is False:
-                    st.error(f"Scan logs show structural anxiety across macro outlets. Protecting risk assets.")
-                else:
-                    st.warning("Data feeds silent on this index. Declaring defensive neutral position.")
-                    
+                    st.error(f"💀 **STRONG LIQUIDATE / SHORT** ({bull_votes} Bulls)")
+
                 st.markdown("---")
-                st.markdown("#### ⚖️ Risk Committee Arbitration Summary")
+                st.markdown("#### 📈 90-Day Historic Consensus Trend")
                 
-                if b_votes == t_votes:
-                    st.success("🎯 VERDICT: STRONG BUY (UNANIMOUS)\n\nComplete model convergence achieved.")
-                elif b_votes > (t_votes / 2):
-                    st.info(f"⚖️ VERDICT: TACTICAL BUY (MAJORITY)\n\nUpside parameters lead room by {b_votes} votes.")
-                elif b_votes == (t_votes / 2):
-                    st.warning("⚡ VERDICT: HOLD\n\nDeadlock encountered. Risk systems mandate staying flat.")
-                else:
-                    st.error("🚨 VERDICT: REJECT/SHORT\n\nDownside parameters dominate. Capital preservation active.")
+                # Backtesting the 6 Agents across the last 90 days
+                r_feats = recent[['Open', 'High', 'Low', 'Close', 'Volume']]
+                
+                h_v1 = m3.predict(r_feats) >= recent['Close']
+                h_v2 = recent['Close'] >= recent['SMA_20']
+                h_v3 = pd.Series([v3] * len(recent), index=recent.index)
+                h_v4 = recent['Close'] >= recent['SMA_50']
+                h_v5 = recent['Close'] >= recent['Open']
+                h_v6 = m1.predict(r_feats) >= recent['Close']
+                
+                # Sum the True votes (0 to 6 max)
+                score_hist = (
+                    h_v1.astype(int) + h_v2.astype(int) + 
+                    h_v3.astype(int) + h_v4.astype(int) + 
+                    h_v5.astype(int) + h_v6.astype(int)
+                )
+                
+                # Render the Graph
+                fig_c = go.Figure()
+                fig_c.add_trace(go.Scatter(
+                    x=recent.index, 
+                    y=score_hist, 
+                    mode='lines', 
+                    name='Consensus Score',
+                    line=dict(color='#29B6F6', width=2.5)
+                ))
+                
+                # Shaded Background Zones
+                fig_c.add_hrect(
+                    y0=3.5, y1=6.5, 
+                    fillcolor="rgba(0,230,118,0.1)", 
+                    layer="below", line_width=0
+                )
+                fig_c.add_hrect(
+                    y0=-0.5, y1=2.5, 
+                    fillcolor="rgba(255,23,68,0.1)", 
+                    layer="below", line_width=0
+                )
+                
+                fig_c.update_layout(
+                    yaxis=dict(
+                        range=[-0.5, 6.5], 
+                        tickvals=[0,1,2,3,4,5,6],
+                        title="Bull Votes (0-6)"
+                    ),
+                    height=250,
+                    margin=dict(l=5, r=5, t=10, b=5),
+                    xaxis_rangeslider_visible=False
+                )
+                st.plotly_chart(fig_c, use_container_width=True)
 
     except Exception as e:
         st.error(f"Terminal Exception Error: {e}")
