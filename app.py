@@ -253,7 +253,6 @@ if st.button("Run Master Multi-Week Analysis"):
                 status.update(label=f"Analysis Complete for {ticker}!", state="complete", expanded=False)
 
         if not data.empty:
-            # --- EXPANDED MOBILE-SAFE TABS CONTAINER ---
             tab1, tab2, tab3 = st.tabs([
                 "🏦 Multi-Week Forecast Path", 
                 "⚡ Day Trading Engine",
@@ -334,35 +333,26 @@ if st.button("Run Master Multi-Week Analysis"):
                     st.success("🤖 Mathematical Model Cascade: NET BULLISH OUTLOOK")
                     st.write(
                         f"**Specifics:** Three distinct Random Forest setups calculated "
-                        f"future intervals from a base price of **\${current_price:.2f}**. "
+                        f"future intervals from a base price of **\\${current_price:.2f}**. "
                         f"The math displays sequential shifts leading to a cumulative target "
-                        f"of **\${forecast_w3:.2f}** over the next 3 weeks."
+                        f"of **\\${forecast_w3:.2f}** over the next 3 weeks."
                     )
                 else:
                     st.error("🤖 Mathematical Model Cascade: NET BEARISH OUTLOOK")
                     st.write(
                         f"**Specifics:** Three distinct Random Forest setups calculated "
-                        f"future intervals from a base price of **\${current_price:.2f}**. "
+                        f"future intervals from a base price of **\\${current_price:.2f}**. "
                         f"The math displays sequential degradation leading to a cumulative target "
-                        f"of **\${forecast_w3:.2f}** over the next 3 weeks."
+                        f"of **\\${forecast_w3:.2f}** over the next 3 weeks."
                     )
                     
                 if num_headlines > 0:
                     if bullish_score > bearish_score:
-                        st.success(
-                            f"📰 Market Psychology ({engine_used}): "
-                            f"BULLISH ({num_headlines} Headlines Scanned)"
-                        )
+                        st.success(f"📰 Market Psychology ({engine_used}): BULLISH ({num_headlines} Headlines Scanned)")
                     elif bearish_score > bullish_score:
-                        st.error(
-                            f"📰 Market Psychology ({engine_used}): "
-                            f"BEARISH ({num_headlines} Headlines Scanned)"
-                        )
+                        st.error(f"📰 Market Psychology ({engine_used}): BEARISH ({num_headlines} Headlines Scanned)")
                     else:
-                        st.info(
-                            f"⚖️ Market Psychology ({engine_used}): "
-                            f"NEUTRAL ({num_headlines} Headlines Scanned)"
-                        )
+                        st.info(f"⚖️ Market Psychology ({engine_used}): NEUTRAL ({num_headlines} Headlines Scanned)")
                 else:
                     st.warning("⚠️ Sentiment Warning: No active news headlines available for this asset currently.")
 
@@ -383,22 +373,18 @@ if st.button("Run Master Multi-Week Analysis"):
                     st.progress(max(0, min(100, position_pct)) / 100)
                     st.caption(f"Price is sitting at {position_pct}% of today's total bracket.")
 
-            # --- NEW ACTIVE FEATURE: TAB 3 (THE AI DEBATE ROOM) ---
             with tab3:
                 st.markdown("### 👥 Institutional AI Debate Room")
                 st.write("Dynamic consensus negotiation block between independent strategies.")
                 st.markdown("---")
                 
-                # Extract real indicator stats to dynamically shape the argument logs
                 latest_sma20 = float(data['SMA_20'].iloc[-1])
                 latest_sma50 = float(data['SMA_50'].iloc[-1])
                 
-                # Determine individual agent biases algorithmically 
                 sophia_bullish = (forecast_w3 >= current_price)
                 marcus_bullish = (current_price >= latest_sma20)
                 elena_bullish = (bullish_score >= bearish_score) if num_headlines > 0 else None
                 
-                # Calculate voting breakdown
                 votes = [sophia_bullish, marcus_bullish]
                 if elena_bullish is not None:
                     votes.append(elena_bullish)
@@ -408,12 +394,13 @@ if st.button("Run Master Multi-Week Analysis"):
                 # --- AGENT 1 LOGIC ---
                 st.markdown("**🧠 Sophia Vance | Chief Quant Modeler:**")
                 if sophia_bullish:
-                    st.info(
-                        f"\"The machine learning model matrix is clear. My Random Forest "
-                        f"cascade tracks non-linear momentum variables shifting toward a "
-                        f"3-week target of **${forecast_w3:.2f}**. This mathematical path is "
-                        f"statistically sound. I am strictly buying this expansion.\""
-                    )
+                    st.info(f"\"The machine learning model matrix is clear. My Random Forest cascade tracks non-linear momentum variables shifting toward a 3-week target of **${forecast_w3:.2f}**. This mathematical path is statistically sound. I am strictly buying this expansion.\"")
                 else:
-                    st.error(
-                        f"\"The data structure is breaking down. The predictive arc
+                    st.error(f"\"The data structure is breaking down. The predictive architecture is tracking a structural weakness pattern collapsing down toward **${forecast_w3:.2f}** by week 3. Buying here is playing chicken with a train. I am calling for an immediate short position.\"")
+                    
+                # --- AGENT 2 LOGIC ---
+                st.markdown("**📈 Marcus Brody | Lead Technical Chartist:**")
+                if marcus_bullish:
+                    st.info(f"\"Hold on Sophia, look at the actual tape. Price is printing structural support at **${current_price:.2f}**, which clears our 20-Day moving average baseline of **${latest_sma20:.2f}**. Trend dynamics dictate that the path of least resistance is higher. I align with the bulls on this breakout.\"")
+                else:
+        
