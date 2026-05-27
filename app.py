@@ -109,13 +109,6 @@ def query_finbert_api(text_list, token):
     except:
         return None
 
-def calculate_rsi(series, period=14):
-    delta = series.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
-
 @st.cache_data(ttl=900, show_spinner=False)
 def scan_market_leaders_fast(watchlist):
     scanned = []
@@ -198,8 +191,7 @@ if st.button("Run Master Multi-Week Analysis"):
                 # Pre-calculate data structures
                 data['SMA_20'] = data['Close'].rolling(window=20).mean()
                 data['SMA_50'] = data['Close'].rolling(window=50).mean()
-                data['RSI'] = calculate_rsi(data['Close'])
-                recent = data.iloc[-90:].copy()
+                recent = data.iloc[-90:]
                 
                 # Model 1: 5 Days
                 df_w1 = data.copy()
@@ -257,12 +249,10 @@ if st.button("Run Master Multi-Week Analysis"):
                 status.update(label="Complete!", state="complete", expanded=False)
 
         if not data.empty:
-            tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            tab1, tab2, tab3 = st.tabs([
                 "🏦 Multi-Week Forecast", 
                 "⚡ Intraday Engine",
-                "👥 AI Debate Room",
-                "📊 Financial Health",
-                "🎯 Institutional Insights"
+                "👥 AI Debate Room"
             ])
             
             with tab1:
@@ -360,23 +350,22 @@ if st.button("Run Master Multi-Week Analysis"):
                     st.caption(f"Price is at {pos}% of today's bracket.")
 
             with tab3:
-                st.markdown(f"### 🗳️ 6-Agent AI Consensus Scoreboard ({ticker})")
+                st.markdown("### 🗳️ 6-Agent AI Consensus Scoreboard")
                 
                 l_sma20 = float(data['SMA_20'].iloc[-1])
                 l_sma50 = float(data['SMA_50'].iloc[-1])
                 l_open = float(data['Open'].iloc[-1])
-                l_rsi = float(data['RSI'].iloc[-1]) if not data['RSI'].isna().all() else 50.0
                 
-                # Dynamic calculated criteria specific to the loaded ticker
                 v1 = (forecast_w3 >= current_price)
                 v2 = (current_price >= l_sma20)
                 v3 = (bull_s >= bear_s) if num_hl > 0 else True
                 v4 = (current_price >= l_sma50)
-                v5 = (l_rsi <= 65.0)  
+                v5 = (current_price >= l_open)
                 v6 = (forecast_w1 >= current_price)
                 
                 votes = [v1, v2, v3, v4, v5, v6]
                 bull_votes = votes.count(True)
+                bear_votes = votes.count(False)
                 
                 v_df = pd.DataFrame({
                     "Algorithmic Voter Node": [
@@ -384,7 +373,7 @@ if st.button("Run Master Multi-Week Analysis"):
                         "Agent 2: Short Trend Engine (20-Day SMA)",
                         "Agent 3: Media Sentiment Array",
                         "Agent 4: Macro Baseline (50-Day SMA)",
-                        "Agent 5: Momentum Variance Check (RSI)",
+                        "Agent 5: Intraday Opening Pivot",
                         "Agent 6: Immediate Vector (1-Week Path)"
                     ],
                     "Stance": ["🟢 BULL" if v else "🔴 BEAR" for v in votes]
@@ -404,91 +393,132 @@ if st.button("Run Master Multi-Week Analysis"):
                     st.error(f"💀 **STRONG LIQUIDATE / SHORT** ({bull_votes} Bulls)")
 
                 st.markdown("---")
+                
+                # --- NEW: Price Forecast Chart inside Debate Room ---
+                st.markdown("#### 📉 Price Trajectory Overlay")
+                
+                f_dates = [
+                    recent.index[-1], 
+                    recent.index[-1] + timedelta(7), 
+                    recent.index[-1] + timedelta(14), 
+                    recent.index[-1] + timedelta(21)
+                ]
+                p_vals = [current_price, forecast_w1, forecast_w2, forecast_w3]
+                fc_clr = '#00E676' if forecast_w3 >= current_price else '#FF1744'
+                
+                fig_p = go.Figure()
+                fig_p.add_trace(go.Scatter(
+                    x=recent.index, 
+                    y=recent['Close'], 
+                    mode='lines', 
+                    name='Historical Price', 
+                    line=dict(color='#29B6F6', width=2)
+                ))
+                fig_p.add_trace(go.Scatter(
+                    x=f_dates, 
+                    y=p_vals, 
+                    mode='lines+markers', 
+                    name='AI Target Path', 
+                    line=dict(color=fc_clr, width=2.5, dash='dash')
+                ))
+                fig_p.update_layout(
+                    yaxis=dict(title="Stock Price ($)"), 
+                    height=250, 
+                    margin=dict(l=5, r=5, t=10, b=5), 
+                    xaxis_rangeslider_visible=False
+                )
+                st.plotly_chart(fig_p, use_container_width=True)
+
                 st.markdown("#### 📈 History & 3-Week Forward Consensus Trend")
                 
-                # DYNAMIC BACKTESTING ROUTINE: Evaluates each historic day uniquely
+                # Backtesting the 6 Agents across the last 90 days
                 r_feats = recent[['Open', 'High', 'Low', 'Close', 'Volume']]
                 
-                # Generate matrix arrays across the last 90 index days dynamically
                 h_v1 = m3.predict(r_feats) >= recent['Close']
                 h_v2 = recent['Close'] >= recent['SMA_20']
-                h_v3 = pd.Series([v3] * len(recent), index=recent.index) # bound to historical news segment
+                h_v3 = pd.Series([v3] * len(recent), index=recent.index)
                 h_v4 = recent['Close'] >= recent['SMA_50']
-                h_v5 = recent['RSI'] <= 65.0
+                h_v5 = recent['Close'] >= recent['Open']
                 h_v6 = m1.predict(r_feats) >= recent['Close']
                 
+                # Sum the True votes (0 to 6 max)
                 score_hist = (
                     h_v1.astype(int) + h_v2.astype(int) + 
                     h_v3.astype(int) + h_v4.astype(int) + 
                     h_v5.astype(int) + h_v6.astype(int)
                 )
 
-                # Future forward matrix progression projections
-                s_w1 = sum([forecast_w3 >= forecast_w1, forecast_w1 >= l_sma20, v3, forecast_w1 >= l_sma50, l_rsi <= 65.0, forecast_w2 >= forecast_w1])
-                s_w2 = sum([forecast_w3 >= forecast_w2, forecast_w2 >= l_sma20, v3, forecast_w2 >= l_sma50, l_rsi <= 65.0, forecast_w3 >= forecast_w2])
-                s_w3 = sum([True, forecast_w3 >= l_sma20, v3, forecast_w3 >= l_sma50, l_rsi <= 65.0, True])
+                # Future Forward Projection Logic for voting trend line
+                s_w1 = sum([
+                    forecast_w3 >= forecast_w1, forecast_w1 >= l_sma20, 
+                    v3, forecast_w1 >= l_sma50, forecast_w1 >= current_price, 
+                    forecast_w2 >= forecast_w1
+                ])
                 
-                f_dates = [recent.index[-1], recent.index[-1]+timedelta(7), recent.index[-1]+timedelta(14), recent.index[-1]+timedelta(21)]
+                s_w2 = sum([
+                    forecast_w3 >= forecast_w2, forecast_w2 >= l_sma20, 
+                    v3, forecast_w2 >= l_sma50, forecast_w2 >= forecast_w1, 
+                    forecast_w3 >= forecast_w2
+                ])
+                
+                s_w3 = sum([
+                    True, forecast_w3 >= l_sma20, v3, 
+                    forecast_w3 >= l_sma50, forecast_w3 >= forecast_w2, True
+                ])
+                
                 f_scores = [score_hist.iloc[-1], s_w1, s_w2, s_w3]
                 
+                # Render the Graph
                 fig_c = go.Figure()
-                fig_c.add_trace(go.Scatter(x=recent.index, y=score_hist, mode='lines', name='Historic Consensus', line=dict(color='#29B6F6', width=2.5)))
                 
-                fc_clr = '#00E676' if s_w3 >= f_scores[0] else '#FF1744'
-                fig_c.add_trace(go.Scatter(x=f_dates, y=f_scores, mode='lines+markers', name='AI Forecast Path', line=dict(color=fc_clr, width=2.5, dash='dash')))
+                # Historic Trace
+                fig_c.add_trace(go.Scatter(
+                    x=recent.index, 
+                    y=score_hist, 
+                    mode='lines', 
+                    name='Historic Consensus',
+                    line=dict(color='#29B6F6', width=2.5)
+                ))
+
+                # Future Forecast Trace (Dashed)
+                fig_c.add_trace(go.Scatter(
+                    x=f_dates, 
+                    y=f_scores, 
+                    mode='lines+markers', 
+                    name='Consensus Path',
+                    line=dict(color=fc_clr, width=2.5, dash='dash')
+                ))
                 
-                fig_c.add_hrect(y0=3.5, y1=6.5, fillcolor="rgba(0,230,118,0.1)", layer="below", line_width=0)
-                fig_c.add_hrect(y0=-0.5, y1=2.5, fillcolor="rgba(255,23,68,0.1)", layer="below", line_width=0)
+                # Shaded Background Zones
+                fig_c.add_hrect(
+                    y0=3.5, y1=6.5, 
+                    fillcolor="rgba(0,230,118,0.1)", 
+                    layer="below", line_width=0
+                )
+                fig_c.add_hrect(
+                    y0=-0.5, y1=2.5, 
+                    fillcolor="rgba(255,23,68,0.1)", 
+                    layer="below", line_width=0
+                )
                 
                 fig_c.update_layout(
-                    yaxis=dict(range=[-0.5, 6.5], tickvals=[0,1,2,3,4,5,6], title="Bull Votes (0-6)"),
-                    height=250, margin=dict(l=5, r=5, t=10, b=5), xaxis_rangeslider_visible=False,
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                    yaxis=dict(
+                        range=[-0.5, 6.5], 
+                        tickvals=[0,1,2,3,4,5,6],
+                        title="Bull Votes (0-6)"
+                    ),
+                    height=250,
+                    margin=dict(l=5, r=5, t=10, b=5),
+                    xaxis_rangeslider_visible=False,
+                    legend=dict(
+                        orientation="h", 
+                        yanchor="bottom", 
+                        y=1.02, 
+                        xanchor="right", 
+                        x=1
+                    )
                 )
                 st.plotly_chart(fig_c, use_container_width=True)
-
-            with tab4:
-                st.markdown(f"### 📊 Fundamental Corporate Financials: {ticker}")
-                try:
-                    financials = stock.financials
-                    if not financials.empty:
-                        idx = financials.index
-                        rev_label = [i for i in idx if 'Total Revenue' in i or 'Revenue' in i]
-                        net_label = [i for i in idx if 'Net Income' in i]
-                        
-                        if rev_label and net_label:
-                            f_plot = financials.loc[[rev_label[0], net_label[0]]].T
-                            f_plot.index = pd.to_datetime(f_plot.index).strftime('%Y')
-                            f_plot.columns = ['Total Revenue', 'Net Income']
-                            st.bar_chart(f_plot)
-                            st.dataframe(financials.dropna(how='all').head(10), use_container_width=True)
-                        else:
-                            st.info("Incomplete financial row mappings found for this asset.")
-                    else:
-                        st.info("No structured financial statements available.")
-                except Exception as ex:
-                    st.caption(f"Financial retrieval bypassed: {ex}")
-
-            with tab5:
-                st.markdown(f"### 🎯 Institutional Earnings Analysis: {ticker}")
-                try:
-                    earn_hist = stock.get_earnings_history()
-                    if earn_hist is not None and not earn_hist.empty:
-                        df_earn = earn_hist.head(8).copy()
-                        df_earn.index = pd.to_datetime(df_earn.index)
-                        df_earn = df_earn.sort_index()
-                        
-                        fig_e = go.Figure()
-                        fig_e.add_trace(go.Bar(x=df_earn.index, y=df_earn['epsEstimate'], name='EPS Estimate', marker_color='#FFA726'))
-                        fig_e.add_trace(go.Bar(x=df_earn.index, y=df_earn['epsActual'], name='EPS Actual', marker_color='#29B6F6'))
-                        
-                        fig_e.update_layout(barmode='group', height=300, margin=dict(l=5, r=5, t=10, b=5))
-                        st.plotly_chart(fig_e, use_container_width=True)
-                        st.table(df_earn[['epsEstimate', 'epsActual', 'epsDifference', 'surprisePercent']].dropna().head(4))
-                    else:
-                        st.info("Historical tracking data is unavailable for this specific equity configuration.")
-                except:
-                    st.info("Earnings matrix interface limits reached for this ticker configuration.")
 
     except Exception as e:
         st.error(f"Terminal Exception Error: {e}")
