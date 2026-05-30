@@ -122,6 +122,10 @@ def scan_market_leaders_fast(watchlist):
         pass
     return pd.DataFrame(scanned)
 
+@st.cache_data
+def convert_df_to_csv(df):
+    return df.to_csv().encode('utf-8')
+
 # --- UI Momentum Watchlist ---
 st.markdown("### 🔥 Live Momentum Watchlist")
 if not parsed_wl:
@@ -162,7 +166,7 @@ if st.button("Run Master Multi-Week Analysis"):
                 status.update(label="Error", state="error")
                 st.error("No market data found for this asset.")
             else:
-                st.write("Training predictive models...")
+                st.write("Calculating Advanced Technicals (MACD & Bollinger)...")
                 feats = ['Open', 'High', 'Low', 'Close', 'Volume']
                 latest_data = data[feats].iloc[-1:]
                 current_price = data['Close'].iloc[-1]
@@ -178,7 +182,22 @@ if st.button("Run Master Multi-Week Analysis"):
                 data['SMA_20'] = data['Close'].rolling(window=20).mean()
                 data['SMA_50'] = data['Close'].rolling(window=50).mean()
                 data['RSI'] = calculate_rsi(data['Close'])
+                
+                # MACD
+                exp1 = data['Close'].ewm(span=12, adjust=False).mean()
+                exp2 = data['Close'].ewm(span=26, adjust=False).mean()
+                data['MACD'] = exp1 - exp2
+                data['Signal_Line'] = data['MACD'].ewm(span=9, adjust=False).mean()
+                
+                # Bollinger Bands
+                data['BB_Mid'] = data['Close'].rolling(window=20).mean()
+                data['BB_Std'] = data['Close'].rolling(window=20).std()
+                data['BB_Upper'] = data['BB_Mid'] + (data['BB_Std'] * 2)
+                data['BB_Lower'] = data['BB_Mid'] - (data['BB_Std'] * 2)
+                
                 recent = data.iloc[-90:].copy()
+                
+                st.write("Training predictive models...")
                 
                 # Models
                 df_w1 = data.copy()
@@ -239,12 +258,23 @@ if st.button("Run Master Multi-Week Analysis"):
                 status.update(label="Complete!", state="complete", expanded=False)
 
         if not data.empty:
-            tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            
+            # --- iPad Export Button ---
+            csv_data = convert_df_to_csv(data)
+            st.download_button(
+                label=f"📥 Download {ticker} Full Dataset (CSV)",
+                data=csv_data,
+                file_name=f"{ticker}_ProQuant_Report.csv",
+                mime="text/csv",
+            )
+            
+            tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
                 "🏦 Multi-Week Forecast", 
                 "⚡ Intraday Engine",
                 "👥 AI Debate Room",
                 "📊 Financial Health",
-                "🎯 Institutional Insights"
+                "🎯 Institutional Insights",
+                "👔 Wall Street Consensus"
             ])
             
             with tab1:
@@ -270,6 +300,8 @@ if st.button("Run Master Multi-Week Analysis"):
                     low=recent['Low'], close=recent['Close'], name='Price'
                 )])
                 
+                fig.add_trace(go.Scatter(x=recent.index, y=recent['BB_Upper'], name='Upper Bollinger', line=dict(color='rgba(158, 158, 158, 0.5)', width=1, dash='dot')))
+                fig.add_trace(go.Scatter(x=recent.index, y=recent['BB_Lower'], name='Lower Bollinger', line=dict(color='rgba(158, 158, 158, 0.5)', width=1, dash='dot')))
                 fig.add_trace(go.Scatter(x=recent.index, y=recent['SMA_20'], name='20 SMA', line=dict(color='#29B6F6', width=1)))
                 fig.add_trace(go.Scatter(x=recent.index, y=recent['SMA_50'], name='50 SMA', line=dict(color='#FFA726', width=1)))
                 
@@ -289,23 +321,10 @@ if st.button("Run Master Multi-Week Analysis"):
                 fig.add_trace(go.Scatter(x=t_line, y=p_vals, mode='lines+markers', name='AI Path', line=dict(color=c_clr, width=2, dash='dash')))
                 fig.update_layout(xaxis_rangeslider_visible=False, height=450, margin=dict(l=5, r=5, t=5, b=5))
                 st.plotly_chart(fig, use_container_width=True)
-                
-                m_df = pd.DataFrame({
-                    "Horizon": [f"Week 1 ({d_w1})", f"Week 2 ({d_w2})", f"Week 3 ({d_w3})", f"Week 4 ({d_w4})"],
-                    "Target": [f"${forecast_w1:.2f}", f"${forecast_w2:.2f}", f"${forecast_w3:.2f}", f"${forecast_w4:.2f}"],
-                    "Move": [f"{((forecast_w1/current_price)-1)*100:+.2f}%", f"{((forecast_w2/current_price)-1)*100:+.2f}%", f"{((forecast_w3/current_price)-1)*100:+.2f}%", f"{((forecast_w4/current_price)-1)*100:+.2f}%"]
-                })
-                st.table(m_df)
-                
-                if (forecast_w4 - current_price) >= 0:
-                    st.success("🤖 Cascade Status: NET BULLISH DETECTED")
-                else:
-                    st.error("🤖 Cascade Status: NET BEARISH DETECTED")
 
             with tab2:
                 st.markdown(f"### ⚡ Intraday Diagnostics: {ticker}")
                 if not intraday.empty:
-                    # Filter for just the most recent available day to map a true intraday session
                     latest_trading_day = intraday.index[-1].date()
                     day_data = intraday[intraday.index.date == latest_trading_day].copy()
                     
@@ -314,7 +333,6 @@ if st.button("Run Master Multi-Week Analysis"):
                         i_hi = day_data['High'].max()
                         i_lo = day_data['Low'].min()
                         
-                        # Institutional VWAP Calculation
                         day_data['Typical_Price'] = (day_data['High'] + day_data['Low'] + day_data['Close']) / 3
                         day_data['VWAP'] = (day_data['Typical_Price'] * day_data['Volume']).cumsum() / day_data['Volume'].cumsum()
                         vwap_val = day_data['VWAP'].iloc[-1]
@@ -323,49 +341,28 @@ if st.button("Run Master Multi-Week Analysis"):
                         cc1.metric("Live Execution", f"${i_cur:.2f}")
                         cc2.metric("Session High", f"${i_hi:.2f}")
                         cc3.metric("Session Low", f"${i_lo:.2f}")
-                        
-                        # VWAP Delta tracking
                         vwap_delta = i_cur - vwap_val
                         cc4.metric("Session VWAP", f"${vwap_val:.2f}", f"{vwap_delta:+.2f} gap")
                         
                         denom = (i_hi - i_lo) if (i_hi - i_lo) != 0 else 1
                         pos = int(((i_cur - i_lo) / denom) * 100)
                         st.progress(max(0, min(100, pos)) / 100)
-                        st.caption(f"Price is at {pos}% of today's bracket.")
                         
-                        st.markdown("#### 📈 Intraday Action (5m Intervals)")
                         fig_i = go.Figure()
-                        
-                        fig_i.add_trace(go.Scatter(
-                            x=day_data.index, y=day_data['Close'], 
-                            mode='lines', name='Price', 
-                            line=dict(color='#29B6F6', width=2.5)
-                        ))
-                        
-                        fig_i.add_trace(go.Scatter(
-                            x=day_data.index, y=day_data['VWAP'], 
-                            mode='lines', name='VWAP Tracker', 
-                            line=dict(color='#FFA726', width=2, dash='dot')
-                        ))
-                        
-                        fig_i.update_layout(
-                            height=350, 
-                            margin=dict(l=5, r=5, t=10, b=5), 
-                            xaxis_rangeslider_visible=False,
-                            yaxis=dict(title="Price ($)"),
-                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-                        )
+                        fig_i.add_trace(go.Scatter(x=day_data.index, y=day_data['Close'], mode='lines', name='Price', line=dict(color='#29B6F6', width=2.5)))
+                        fig_i.add_trace(go.Scatter(x=day_data.index, y=day_data['VWAP'], mode='lines', name='VWAP Tracker', line=dict(color='#FFA726', width=2, dash='dot')))
+                        fig_i.update_layout(height=350, margin=dict(l=5, r=5, t=10, b=5), xaxis_rangeslider_visible=False)
                         st.plotly_chart(fig_i, use_container_width=True)
-                    else:
-                        st.info("Insufficient intraday data to plot today's session.")
 
             with tab3:
-                st.markdown(f"### 🗳️ 6-Agent AI Consensus Scoreboard ({ticker})")
+                st.markdown(f"### 🗳️ 8-Agent AI Consensus Scoreboard ({ticker})")
                 
                 l_sma20 = float(data['SMA_20'].iloc[-1])
                 l_sma50 = float(data['SMA_50'].iloc[-1])
                 l_open = float(data['Open'].iloc[-1])
                 l_rsi = float(data['RSI'].iloc[-1]) if not data['RSI'].isna().all() else 50.0
+                l_macd = float(data['MACD'].iloc[-1])
+                l_signal = float(data['Signal_Line'].iloc[-1])
                 
                 v1 = (forecast_w4 >= current_price)
                 v2 = (current_price >= l_sma20)
@@ -373,8 +370,10 @@ if st.button("Run Master Multi-Week Analysis"):
                 v4 = (current_price >= l_sma50)
                 v5 = (l_rsi <= 65.0)  
                 v6 = (forecast_w1 >= current_price)
+                v7 = (l_macd >= l_signal) # New MACD Agent
+                v8 = (current_price <= data['BB_Upper'].iloc[-1]) # New Bollinger Agent
                 
-                votes = [v1, v2, v3, v4, v5, v6]
+                votes = [v1, v2, v3, v4, v5, v6, v7, v8]
                 bull_votes = votes.count(True)
                 
                 v_df = pd.DataFrame({
@@ -384,55 +383,27 @@ if st.button("Run Master Multi-Week Analysis"):
                         "Agent 3: Media Sentiment Array",
                         "Agent 4: Macro Baseline (50-Day SMA)",
                         "Agent 5: Momentum Variance Check (RSI)",
-                        "Agent 6: Immediate Vector (1-Week Path)"
+                        "Agent 6: Immediate Vector (1-Week Path)",
+                        "Agent 7: Trend Reversal Crossover (MACD)",
+                        "Agent 8: Volatility Overbought Check (Bollinger)"
                     ],
                     "Stance": ["🟢 BULL" if v else "🔴 BEAR" for v in votes]
                 })
                 st.table(v_df)
                 
-                if bull_votes >= 5: st.success(f"🎯 **STRONG BUY** ({bull_votes} Bulls)")
-                elif bull_votes == 4: st.info(f"⚖️ **TACTICAL ACCUMULATE** ({bull_votes} Bulls)")
-                elif bull_votes == 3: st.warning(f"⚡ **EQUAL WEIGHT / HOLD** ({bull_votes} Bulls)")
-                elif bull_votes == 2: st.error(f"🚨 **TACTICAL REDUCE / SHORT** ({bull_votes} Bulls)")
-                else: st.error(f"💀 **STRONG LIQUIDATE / SHORT** ({bull_votes} Bulls)")
+                if bull_votes >= 6: st.success(f"🎯 **STRONG BUY** ({bull_votes}/8 Bulls)")
+                elif bull_votes >= 5: st.info(f"⚖️ **TACTICAL ACCUMULATE** ({bull_votes}/8 Bulls)")
+                elif bull_votes == 4: st.warning(f"⚡ **EQUAL WEIGHT / HOLD** ({bull_votes}/8 Bulls)")
+                elif bull_votes >= 2: st.error(f"🚨 **TACTICAL REDUCE / SHORT** ({bull_votes}/8 Bulls)")
+                else: st.error(f"💀 **STRONG LIQUIDATE / SHORT** ({bull_votes}/8 Bulls)")
 
                 st.markdown("---")
                 st.markdown("#### 📉 Price Trajectory Overlay")
-                
                 fig_p = go.Figure()
                 fig_p.add_trace(go.Scatter(x=recent.index, y=recent['Close'], mode='lines', name='Historical Price', line=dict(color='#29B6F6', width=2)))
                 fig_p.add_trace(go.Scatter(x=t_line, y=p_vals, mode='lines+markers', name='AI Target Path', line=dict(color=c_clr, width=2.5, dash='dash')))
                 fig_p.update_layout(yaxis=dict(title="Stock Price ($)"), height=250, margin=dict(l=5, r=5, t=10, b=5), xaxis_rangeslider_visible=False)
                 st.plotly_chart(fig_p, use_container_width=True)
-
-                st.markdown("#### 📈 History & 4-Week Forward Consensus Trend")
-                
-                r_feats = recent[['Open', 'High', 'Low', 'Close', 'Volume']]
-                h_v1 = m4.predict(r_feats) >= recent['Close']
-                h_v2 = recent['Close'] >= recent['SMA_20']
-                h_v3 = pd.Series([v3] * len(recent), index=recent.index) 
-                h_v4 = recent['Close'] >= recent['SMA_50']
-                h_v5 = recent['RSI'] <= 65.0
-                h_v6 = m1.predict(r_feats) >= recent['Close']
-                
-                score_hist = h_v1.astype(int) + h_v2.astype(int) + h_v3.astype(int) + h_v4.astype(int) + h_v5.astype(int) + h_v6.astype(int)
-
-                s_w1 = sum([forecast_w4 >= forecast_w1, forecast_w1 >= l_sma20, v3, forecast_w1 >= l_sma50, l_rsi <= 65.0, forecast_w2 >= forecast_w1])
-                s_w2 = sum([forecast_w4 >= forecast_w2, forecast_w2 >= l_sma20, v3, forecast_w2 >= l_sma50, l_rsi <= 65.0, forecast_w3 >= forecast_w2])
-                s_w3 = sum([forecast_w4 >= forecast_w3, forecast_w3 >= l_sma20, v3, forecast_w3 >= l_sma50, l_rsi <= 65.0, forecast_w4 >= forecast_w3])
-                s_w4 = sum([True, forecast_w4 >= l_sma20, v3, forecast_w4 >= l_sma50, l_rsi <= 65.0, True])
-                
-                f_scores = [score_hist.iloc[-1], s_w1, s_w2, s_w3, s_w4]
-                
-                fig_c = go.Figure()
-                fig_c.add_trace(go.Scatter(x=recent.index, y=score_hist, mode='lines', name='Historic Consensus', line=dict(color='#29B6F6', width=2.5)))
-                fig_c.add_trace(go.Scatter(x=t_line, y=f_scores, mode='lines+markers', name='AI Consensus Path', line=dict(color=c_clr, width=2.5, dash='dash')))
-                
-                fig_c.add_hrect(y0=3.5, y1=6.5, fillcolor="rgba(0,230,118,0.1)", layer="below", line_width=0)
-                fig_c.add_hrect(y0=-0.5, y1=2.5, fillcolor="rgba(255,23,68,0.1)", layer="below", line_width=0)
-                
-                fig_c.update_layout(yaxis=dict(range=[-0.5, 6.5], tickvals=[0,1,2,3,4,5,6], title="Bull Votes (0-6)"), height=250, margin=dict(l=5, r=5, t=10, b=5), xaxis_rangeslider_visible=False)
-                st.plotly_chart(fig_c, use_container_width=True)
 
             with tab4:
                 st.markdown(f"### 📊 Fundamental Corporate Financials: {ticker}")
@@ -450,8 +421,6 @@ if st.button("Run Master Multi-Week Analysis"):
                             st.dataframe(financials.dropna(how='all').head(10), use_container_width=True)
                         else:
                             st.info("Incomplete financial row mappings found for this asset.")
-                    else:
-                        st.info("No structured financial statements available.")
                 except Exception as ex:
                     st.caption(f"Financial retrieval bypassed: {ex}")
 
@@ -470,11 +439,27 @@ if st.button("Run Master Multi-Week Analysis"):
                         
                         fig_e.update_layout(barmode='group', height=300, margin=dict(l=5, r=5, t=10, b=5))
                         st.plotly_chart(fig_e, use_container_width=True)
-                        st.table(df_earn[['epsEstimate', 'epsActual', 'epsDifference', 'surprisePercent']].dropna().head(4))
-                    else:
-                        st.info("Historical tracking data is unavailable for this specific equity configuration.")
                 except:
                     st.info("Earnings matrix interface limits reached for this ticker configuration.")
+                    
+            with tab6:
+                st.markdown(f"### 👔 Wall Street Consensus Ratings: {ticker}")
+                try:
+                    recs = stock.recommendations
+                    if recs is not None and not recs.empty:
+                        st.write("Recent institutional upgrades and downgrades:")
+                        
+                        # Clean up formatting for the iPad screen
+                        clean_recs = recs.tail(10).copy()
+                        if 'period' in clean_recs.columns:
+                            clean_recs = clean_recs.drop(columns=['period'])
+                        st.dataframe(clean_recs, use_container_width=True)
+                        
+                        st.info("Institutional data is drawn from third-party sources and may lag real-time filings.")
+                    else:
+                        st.warning("No recent Wall Street recommendations found for this ticker.")
+                except Exception as e:
+                    st.info("Analyst rating module unavailable for this asset.")
 
     except Exception as e:
         st.error(f"Terminal Exception Error: {e}")
