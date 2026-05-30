@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 # --- Configuration ---
 st.set_page_config(
     page_title="ProQuant AI", 
-    layout="wide", # Switched to wide layout to fit 5 columns nicely on iPad
+    layout="wide", 
     page_icon="📈"
 )
 st.title("ProQuant AI 📈")
@@ -137,7 +137,7 @@ else:
             if abs(row['change']) >= alert_threshold:
                 st.toast(f"{row['ticker']} shifted {row['change']:+.2f}%")
         
-        display_count = min(5, len(f_df)) # Expanded to fit wide layout
+        display_count = min(5, len(f_df))
         if display_count > 0:
             cols = st.columns(display_count)
             for i, row in enumerate(f_df.head(display_count).itertuples()):
@@ -180,7 +180,7 @@ if st.button("Run Master Multi-Week Analysis"):
                 data['RSI'] = calculate_rsi(data['Close'])
                 recent = data.iloc[-90:].copy()
                 
-                # Model 1: 5 Days (Week 1)
+                # Models
                 df_w1 = data.copy()
                 df_w1['Target'] = df_w1['Close'].shift(-5)
                 df_w1.dropna(inplace=True)
@@ -188,7 +188,6 @@ if st.button("Run Master Multi-Week Analysis"):
                 m1.fit(df_w1[feats], df_w1['Target'])
                 forecast_w1 = m1.predict(latest_data)[0]
                 
-                # Model 2: 10 Days (Week 2)
                 df_w2 = data.copy()
                 df_w2['Target'] = df_w2['Close'].shift(-10)
                 df_w2.dropna(inplace=True)
@@ -196,7 +195,6 @@ if st.button("Run Master Multi-Week Analysis"):
                 m2.fit(df_w2[feats], df_w2['Target'])
                 forecast_w2 = m2.predict(latest_data)[0]
                 
-                # Model 3: 15 Days (Week 3)
                 df_w3 = data.copy()
                 df_w3['Target'] = df_w3['Close'].shift(-15)
                 df_w3.dropna(inplace=True)
@@ -204,7 +202,6 @@ if st.button("Run Master Multi-Week Analysis"):
                 m3.fit(df_w3[feats], df_w3['Target'])
                 forecast_w3 = m3.predict(latest_data)[0]
                 
-                # Model 4: 20 Days (Week 4)
                 df_w4 = data.copy()
                 df_w4['Target'] = df_w4['Close'].shift(-20)
                 df_w4.dropna(inplace=True)
@@ -253,7 +250,6 @@ if st.button("Run Master Multi-Week Analysis"):
             with tab1:
                 st.markdown(f"### 📊 4-Week Forecast Path: {ticker}")
                 
-                # Expanded to 5 columns for Week 4
                 mc1, mc2, mc3, mc4, mc5 = st.columns(5)
                 mc1.metric(f"Current ({last_date.strftime('%b %d')})", f"${current_price:.2f}")
                 mc2.metric(f"Wk 1 ({d_w1})", f"${forecast_w1:.2f}", f"{forecast_w1 - current_price:+.2f}")
@@ -309,19 +305,59 @@ if st.button("Run Master Multi-Week Analysis"):
             with tab2:
                 st.markdown(f"### ⚡ Intraday Diagnostics: {ticker}")
                 if not intraday.empty:
-                    i_cur = intraday['Close'].iloc[-1]
-                    i_hi = intraday['High'].max()
-                    i_lo = intraday['Low'].min()
+                    # Filter for just the most recent available day to map a true intraday session
+                    latest_trading_day = intraday.index[-1].date()
+                    day_data = intraday[intraday.index.date == latest_trading_day].copy()
                     
-                    cc1, cc2, cc3 = st.columns(3)
-                    cc1.metric("Live Execution", f"${i_cur:.2f}")
-                    cc2.metric("Session High", f"${i_hi:.2f}")
-                    cc3.metric("Session Low", f"${i_lo:.2f}")
-                    
-                    denom = (i_hi - i_lo) if (i_hi - i_lo) != 0 else 1
-                    pos = int(((i_cur - i_lo) / denom) * 100)
-                    st.progress(max(0, min(100, pos)) / 100)
-                    st.caption(f"Price is at {pos}% of today's bracket.")
+                    if not day_data.empty:
+                        i_cur = day_data['Close'].iloc[-1]
+                        i_hi = day_data['High'].max()
+                        i_lo = day_data['Low'].min()
+                        
+                        # Institutional VWAP Calculation
+                        day_data['Typical_Price'] = (day_data['High'] + day_data['Low'] + day_data['Close']) / 3
+                        day_data['VWAP'] = (day_data['Typical_Price'] * day_data['Volume']).cumsum() / day_data['Volume'].cumsum()
+                        vwap_val = day_data['VWAP'].iloc[-1]
+                        
+                        cc1, cc2, cc3, cc4 = st.columns(4)
+                        cc1.metric("Live Execution", f"${i_cur:.2f}")
+                        cc2.metric("Session High", f"${i_hi:.2f}")
+                        cc3.metric("Session Low", f"${i_lo:.2f}")
+                        
+                        # VWAP Delta tracking
+                        vwap_delta = i_cur - vwap_val
+                        cc4.metric("Session VWAP", f"${vwap_val:.2f}", f"{vwap_delta:+.2f} gap")
+                        
+                        denom = (i_hi - i_lo) if (i_hi - i_lo) != 0 else 1
+                        pos = int(((i_cur - i_lo) / denom) * 100)
+                        st.progress(max(0, min(100, pos)) / 100)
+                        st.caption(f"Price is at {pos}% of today's bracket.")
+                        
+                        st.markdown("#### 📈 Intraday Action (5m Intervals)")
+                        fig_i = go.Figure()
+                        
+                        fig_i.add_trace(go.Scatter(
+                            x=day_data.index, y=day_data['Close'], 
+                            mode='lines', name='Price', 
+                            line=dict(color='#29B6F6', width=2.5)
+                        ))
+                        
+                        fig_i.add_trace(go.Scatter(
+                            x=day_data.index, y=day_data['VWAP'], 
+                            mode='lines', name='VWAP Tracker', 
+                            line=dict(color='#FFA726', width=2, dash='dot')
+                        ))
+                        
+                        fig_i.update_layout(
+                            height=350, 
+                            margin=dict(l=5, r=5, t=10, b=5), 
+                            xaxis_rangeslider_visible=False,
+                            yaxis=dict(title="Price ($)"),
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                        )
+                        st.plotly_chart(fig_i, use_container_width=True)
+                    else:
+                        st.info("Insufficient intraday data to plot today's session.")
 
             with tab3:
                 st.markdown(f"### 🗳️ 6-Agent AI Consensus Scoreboard ({ticker})")
@@ -331,7 +367,7 @@ if st.button("Run Master Multi-Week Analysis"):
                 l_open = float(data['Open'].iloc[-1])
                 l_rsi = float(data['RSI'].iloc[-1]) if not data['RSI'].isna().all() else 50.0
                 
-                v1 = (forecast_w4 >= current_price) # Updated to look at Week 4
+                v1 = (forecast_w4 >= current_price)
                 v2 = (current_price >= l_sma20)
                 v3 = (bull_s >= bear_s) if num_hl > 0 else True
                 v4 = (current_price >= l_sma50)
