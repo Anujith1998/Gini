@@ -195,9 +195,10 @@ if st.button("Run Master Multi-Week Analysis"):
                 
                 # Derive live sentiment feature
                 live_sentiment_score = float(bull_s - bear_s)
+                # Alpha Drift limits the raw sentiment score to a maximum 5% shift parameter to prevent blowout
+                alpha_drift = np.clip(live_sentiment_score * 0.008, -0.05, 0.05) 
                 
                 st.write("Engineering geometric stationary feature matrices...")
-                # Technical feature baselines
                 data['SMA_20'] = data['Close'].rolling(window=20).mean()
                 data['SMA_50'] = data['Close'].rolling(window=50).mean()
                 data['RSI'] = calculate_rsi(data['Close'])
@@ -219,14 +220,10 @@ if st.button("Run Master Multi-Week Analysis"):
                 data['Low_Close_Ratio'] = data['Low'] / data['Close']
                 data['BB_Spread_Ratio'] = (data['BB_Upper'] - data['BB_Lower']) / data['BB_Mid']
                 
-                # Mock historical sentiment proxy for training variance, appending live score at endpoint
-                data['Sentiment_Feature'] = np.random.uniform(-0.1, 0.1, len(data))
-                data.iloc[-1, data.columns.get_loc('Sentiment_Feature')] = live_sentiment_score
-                
                 data.dropna(subset=['P_SMA20_Ratio', 'SMA20_50_Ratio', 'RSI', 'MACD', 'BB_Spread_Ratio'], inplace=True)
                 
-                # Stationary Quant Feature Pillars
-                feats = ['P_SMA20_Ratio', 'SMA20_50_Ratio', 'High_Close_Ratio', 'Low_Close_Ratio', 'BB_Spread_Ratio', 'RSI', 'MACD', 'Signal_Line', 'Sentiment_Feature']
+                # Stationary Quant Feature Pillars (No random noise!)
+                feats = ['P_SMA20_Ratio', 'SMA20_50_Ratio', 'High_Close_Ratio', 'Low_Close_Ratio', 'BB_Spread_Ratio', 'RSI', 'MACD', 'Signal_Line']
                 latest_features = data[feats].iloc[-1:]
                 current_price = float(data['Close'].iloc[-1])
                 last_date = data.index[-1]
@@ -238,33 +235,36 @@ if st.button("Run Master Multi-Week Analysis"):
                 
                 recent = data.iloc[-90:].copy()
                 
-                st.write("Executing machine learning returns cascade...")
-                # Robust Random Forest Constraints to stop overfitting
+                st.write("Executing machine learning returns cascade with Alpha Sentiment Overlay...")
                 rf_args = {"n_estimators": 150, "max_depth": 5, "min_samples_leaf": 5, "random_state": 42}
                 
                 df_w1 = data.copy()
                 df_w1['Target'] = np.log(df_w1['Close'].shift(-5) / df_w1['Close'])
                 df_w1.dropna(subset=['Target'], inplace=True)
                 m1 = RandomForestRegressor(**rf_args).fit(df_w1[feats], df_w1['Target'])
-                forecast_w1 = current_price * np.exp(m1.predict(latest_features)[0])
+                base_ret_w1 = m1.predict(latest_features)[0]
+                forecast_w1 = current_price * np.exp(base_ret_w1 + (alpha_drift * 1))
                 
                 df_w2 = data.copy()
                 df_w2['Target'] = np.log(df_w2['Close'].shift(-10) / df_w2['Close'])
                 df_w2.dropna(subset=['Target'], inplace=True)
                 m2 = RandomForestRegressor(**rf_args).fit(df_w2[feats], df_w2['Target'])
-                forecast_w2 = current_price * np.exp(m2.predict(latest_features)[0])
+                base_ret_w2 = m2.predict(latest_features)[0]
+                forecast_w2 = current_price * np.exp(base_ret_w2 + (alpha_drift * 2))
                 
                 df_w3 = data.copy()
                 df_w3['Target'] = np.log(df_w3['Close'].shift(-15) / df_w3['Close'])
                 df_w3.dropna(subset=['Target'], inplace=True)
                 m3 = RandomForestRegressor(**rf_args).fit(df_w3[feats], df_w3['Target'])
-                forecast_w3 = current_price * np.exp(m3.predict(latest_features)[0])
+                base_ret_w3 = m3.predict(latest_features)[0]
+                forecast_w3 = current_price * np.exp(base_ret_w3 + (alpha_drift * 3))
                 
                 df_w4 = data.copy()
                 df_w4['Target'] = np.log(df_w4['Close'].shift(-20) / df_w4['Close'])
                 df_w4.dropna(subset=['Target'], inplace=True)
                 m4 = RandomForestRegressor(**rf_args).fit(df_w4[feats], df_w4['Target'])
-                forecast_w4 = current_price * np.exp(m4.predict(latest_features)[0])
+                base_ret_w4 = m4.predict(latest_features)[0]
+                forecast_w4 = current_price * np.exp(base_ret_w4 + (alpha_drift * 4))
                 
                 status.update(label="Analysis Complete!", state="complete", expanded=False)
 
