@@ -193,9 +193,8 @@ if st.button("Run Master Multi-Week Analysis"):
                                 if pol > 0.1: bull_s += pol
                                 elif pol < -0.1: bear_s += abs(pol)
                 
-                # Derive live sentiment feature
+                # Live sentiment feature definitions
                 live_sentiment_score = float(bull_s - bear_s)
-                # Alpha Drift limits the raw sentiment score to a maximum 5% shift parameter to prevent blowout
                 alpha_drift = np.clip(live_sentiment_score * 0.008, -0.05, 0.05) 
                 
                 st.write("Engineering geometric stationary feature matrices...")
@@ -213,7 +212,7 @@ if st.button("Run Master Multi-Week Analysis"):
                 data['BB_Upper'] = data['BB_Mid'] + (data['BB_Std'] * 2)
                 data['BB_Lower'] = data['BB_Mid'] - (data['BB_Std'] * 2)
                 
-                # Transform absolute values into structural STATIONARY ratios
+                # Transform to stationary ratios to avoid structural breakage at all-time highs
                 data['P_SMA20_Ratio'] = data['Close'] / data['SMA_20']
                 data['SMA20_50_Ratio'] = data['SMA_20'] / data['SMA_50']
                 data['High_Close_Ratio'] = data['High'] / data['Close']
@@ -222,7 +221,6 @@ if st.button("Run Master Multi-Week Analysis"):
                 
                 data.dropna(subset=['P_SMA20_Ratio', 'SMA20_50_Ratio', 'RSI', 'MACD', 'BB_Spread_Ratio'], inplace=True)
                 
-                # Stationary Quant Feature Pillars (No random noise!)
                 feats = ['P_SMA20_Ratio', 'SMA20_50_Ratio', 'High_Close_Ratio', 'Low_Close_Ratio', 'BB_Spread_Ratio', 'RSI', 'MACD', 'Signal_Line']
                 latest_features = data[feats].iloc[-1:]
                 current_price = float(data['Close'].iloc[-1])
@@ -358,7 +356,7 @@ if st.button("Run Master Multi-Week Analysis"):
                         st.plotly_chart(fig_i, use_container_width=True)
 
             with tab3:
-                st.markdown(f"### 🗳️ 8-Agent AI Consensus Scoreboard ({ticker})")
+                st.markdown(f"### 🗳️ 8-Agent Unified Sentiment-Technical Scoreboard ({ticker})")
                 
                 l_sma20 = float(data['SMA_20'].iloc[-1])
                 l_sma50 = float(data['SMA_50'].iloc[-1])
@@ -366,12 +364,13 @@ if st.button("Run Master Multi-Week Analysis"):
                 l_macd = float(data['MACD'].iloc[-1])
                 l_signal = float(data['Signal_Line'].iloc[-1])
                 
-                v1 = (forecast_w4 >= current_price)
+                # Dynamic Votes incorporating sentiment parameters
+                v1 = (forecast_w4 >= current_price) # Sentiment-driven Return Model
                 v2 = (current_price >= l_sma20)
-                v3 = (bull_s >= bear_s) if num_hl > 0 else True
+                v3 = (live_sentiment_score >= 0)     # Pure Media Sentiment Engine
                 v4 = (current_price >= l_sma50)
                 v5 = (l_rsi <= 65.0)  
-                v6 = (forecast_w1 >= current_price)
+                v6 = (forecast_w1 >= current_price) # Sentiment-driven Return Model
                 v7 = (l_macd >= l_signal) 
                 v8 = (current_price <= data['BB_Upper'].iloc[-1]) 
                 
@@ -380,12 +379,12 @@ if st.button("Run Master Multi-Week Analysis"):
                 
                 v_df = pd.DataFrame({
                     "Algorithmic Voter Node": [
-                        "Agent 1: Cascade ML Return Matrix (4-Week)",
+                        "Agent 1: Cascade ML Matrix + Sentiment Alpha (4-Week)",
                         "Agent 2: Short Trend Engine (20-Day SMA)",
-                        "Agent 3: Media Sentiment Array",
+                        "Agent 3: Real-Time Media Sentiment Array",
                         "Agent 4: Macro Baseline (50-Day SMA)",
                         "Agent 5: Momentum Variance Check (RSI)",
-                        "Agent 6: Immediate Vector (1-Week Return Path)",
+                        "Agent 6: Immediate Vector + Sentiment Alpha (1-Week)",
                         "Agent 7: Trend Reversal Crossover (MACD)",
                         "Agent 8: Volatility Overbought Check (Bollinger)"
                     ],
@@ -406,6 +405,44 @@ if st.button("Run Master Multi-Week Analysis"):
                 fig_p.add_trace(go.Scatter(x=t_line, y=p_vals, mode='lines+markers', name='AI Target Path', line=dict(color=c_clr, width=2.5, dash='dash')))
                 fig_p.update_layout(yaxis=dict(title="Stock Price ($)"), height=250, margin=dict(l=5, r=5, t=10, b=5), xaxis_rangeslider_visible=False)
                 st.plotly_chart(fig_p, use_container_width=True)
+
+                st.markdown("#### 📈 History & 4-Week Forward Consensus Trend")
+                
+                # Backtesting execution matrix - Fixes absolute price vs log return calculation error
+                r_feats = recent[['Open', 'High', 'Low', 'Close', 'Volume', 'SMA_20', 'SMA_50', 'RSI', 'MACD', 'Signal_Line', 'BB_Upper', 'BB_Lower', 'P_SMA20_Ratio', 'SMA20_50_Ratio', 'High_Close_Ratio', 'Low_Close_Ratio', 'BB_Spread_Ratio']]
+                
+                h_v1 = m4.predict(r_feats[feats]) >= 0  # Evaluating positive directional return prediction
+                h_v2 = recent['Close'] >= recent['SMA_20']
+                h_v3 = pd.Series([v3] * len(recent), index=recent.index) 
+                h_v4 = recent['Close'] >= recent['SMA_50']
+                h_v5 = recent['RSI'] <= 65.0
+                h_v6 = m1.predict(r_feats[feats]) >= 0  # Evaluating positive directional return prediction
+                h_v7 = recent['MACD'] >= recent['Signal_Line']
+                h_v8 = recent['Close'] <= recent['BB_Upper']
+                
+                score_hist = (
+                    h_v1.astype(int) + h_v2.astype(int) + h_v3.astype(int) + 
+                    h_v4.astype(int) + h_v5.astype(int) + h_v6.astype(int) + 
+                    h_v7.astype(int) + h_v8.astype(int)
+                )
+
+                # Future Consensus Line Projections factoring in alpha-adjusted curves
+                s_w1 = sum([forecast_w4 >= forecast_w1, forecast_w1 >= l_sma20, v3, forecast_w1 >= l_sma50, l_rsi <= 65.0, forecast_w1 >= current_price, l_macd >= l_signal, forecast_w1 <= recent['BB_Upper'].iloc[-1]])
+                s_w2 = sum([forecast_w4 >= forecast_w2, forecast_w2 >= l_sma20, v3, forecast_w2 >= l_sma50, l_rsi <= 65.0, forecast_w2 >= current_price, l_macd >= l_signal, forecast_w2 <= recent['BB_Upper'].iloc[-1]])
+                s_w3 = sum([forecast_w4 >= forecast_w3, forecast_w3 >= l_sma20, v3, forecast_w3 >= l_sma50, l_rsi <= 65.0, forecast_w3 >= current_price, l_macd >= l_signal, forecast_w3 <= recent['BB_Upper'].iloc[-1]])
+                s_w4 = sum([True, forecast_w4 >= l_sma20, v3, forecast_w4 >= l_sma50, l_rsi <= 65.0, forecast_w4 >= current_price, l_macd >= l_signal, forecast_w4 <= recent['BB_Upper'].iloc[-1]])
+                
+                f_scores = [score_hist.iloc[-1], s_w1, s_w2, s_w3, s_w4]
+                
+                fig_c = go.Figure()
+                fig_c.add_trace(go.Scatter(x=recent.index, y=score_hist, mode='lines', name='Historic Consensus', line=dict(color='#29B6F6', width=2.5)))
+                fig_c.add_trace(go.Scatter(x=t_line, y=f_scores, mode='lines+markers', name='AI Consensus Path', line=dict(color=c_clr, width=2.5, dash='dash')))
+                
+                fig_c.add_hrect(y0=4.5, y1=8.5, fillcolor="rgba(0,230,118,0.1)", layer="below", line_width=0)
+                fig_c.add_hrect(y0=-0.5, y1=3.5, fillcolor="rgba(255,23,68,0.1)", layer="below", line_width=0)
+                
+                fig_c.update_layout(yaxis=dict(range=[-0.5, 8.5], tickvals=[0,1,2,3,4,5,6,7,8], title="Bull Votes (0-8)"), height=250, margin=dict(l=5, r=5, t=10, b=5), xaxis_rangeslider_visible=False)
+                st.plotly_chart(fig_c, use_container_width=True)
 
             with tab4:
                 st.markdown(f"### 📊 Fundamental Corporate Financials: {ticker}")
